@@ -1,0 +1,50 @@
+{
+  "name": "electron_project",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "cross-env NODE_ENV=development concurrently \"cd frontend && npm run dev\" \"wait-on http://localhost:5173 && npm run start\"",
+    "build": "cd frontend && npm run build",
+    "package": "npm run build && npx electron-builder -wl",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "build": {
+    "appId": "com.your.app",
+    "productName": "Your App Name",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "frontend/dist/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Development"
+    }
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.1",
+    "cross-env": "^7.0.3",
+    "electron": "^34.2.0",
+    "electron-builder": "^25.1.8",
+    "electron-reload": "^2.0.0-alpha.1",
+    "electron-reloader": "^1.2.3",
+    "wait-on": "^8.0.2"
+  },
+  "dependencies": {
+    "react-router-dom": "^7.2.0"
+  }
+}
