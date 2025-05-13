@@ -1,6 +1,9 @@
 const { app, BrowserWindow } = require('electron')
 const path = require('path')
+const { spawn } = require('child_process')
+
 const isDev = process.env.NODE_ENV === 'development'
+let flaskProcess = null
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -12,12 +15,10 @@ function createWindow() {
     }
   })
 
-  // 개발 환경
   if (isDev) {
     console.log('Development Mode')
     win.loadURL('http://localhost:5173')
     win.webContents.openDevTools()
-    // Hot Reload 설정
     win.webContents.on('did-fail-load', () => {
       console.log('Failed to load')
       setTimeout(() => {
@@ -25,14 +26,43 @@ function createWindow() {
       }, 1000)
     })
   } else {
-    // 프로덕션 환경
     win.loadFile(path.join(__dirname, 'frontend/dist/index.html'))
   }
 }
 
-app.whenReady().then(createWindow)
+function startFlaskServer() {
+  const scriptPath = path.join(__dirname, 'backend', 'flask_server.py')
+  const pythonPath = path.join(__dirname, 'backend', 'venv', 'Scripts', 'python.exe')
+
+  flaskProcess = spawn(pythonPath, [scriptPath], {
+    cwd: path.join(__dirname, 'backend'),
+    shell: true
+  })
+
+  flaskProcess.stdout.on('data', (data) => {
+    console.log(`[Flask] ${data.toString()}`)
+  })
+
+  flaskProcess.stderr.on('data', (data) => {
+    console.error(`[Flask Error] ${data.toString()}`)
+  })
+
+  flaskProcess.on('error', (err) => {
+    console.error(`[Flask Error] Failed to start: ${err.message}`)
+  })
+
+  flaskProcess.on('close', (code) => {
+    console.log(`[Flask] exited with code ${code}`)
+  })
+}
+
+app.whenReady().then(() => {
+  startFlaskServer()
+  createWindow()
+})
 
 app.on('window-all-closed', () => {
+  if (flaskProcess) flaskProcess.kill()
   if (process.platform !== 'darwin') {
     app.quit()
   }

@@ -17,6 +17,9 @@
 .logo.react:hover {
   filter: drop-shadow(0 0 2em #61dafbaa);
 }
+.logo.flask:hover {
+  filter: drop-shadow(0 0 2em #f9f7f7aa);
+}
 
 @keyframes logo-spin {
   from {
