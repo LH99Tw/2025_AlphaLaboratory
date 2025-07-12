@@ -1,0 +1,505 @@
+import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+import os
+import numpy as np
+import pandas as pd
+import yfinance as yf
+from datetime import datetime
+import pandas_datareader.data as web
+import gc
+import os
+import time
+import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Function to get the current list of S&P 500 components
+def get_sp500_tickers():
+    sp500_url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+    table = pd.read_html(sp500_url, header=0)
+    df = table[0]
+    gc.collect()
+    return df['Symbol'].tolist()
+
+# Function to map problematic tickers to their correct Yahoo Finance symbols
+def map_ticker_to_yahoo(ticker):
+    """Map problematic tickers to their correct Yahoo Finance symbols"""
+    # Known problematic tickers with their correct Yahoo Finance symbols
+    known_mappings = {
+        'BRK.B': 'BRK-B',  # Berkshire Hathaway Class B
+        'BF.B': 'BF-B',    # Brown-Forman Class B
+        'BRK.A': 'BRK-A',  # Berkshire Hathaway Class A
+        'BF.A': 'BF-A',    # Brown-Forman Class A
+    }
+    
+    # First check known mappings
+    if ticker in known_mappings:
+        return known_mappings[ticker]
+    
+    # For other tickers with dots, try both original and hyphenated versions
+    if '.' in ticker:
+        return ticker.replace('.', '-')
+    
+    return ticker
+
+# 데이터베이스 폴더 경로 설정
+database_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'database')
+os.makedirs(database_path, exist_ok=True)
+filename = os.path.join(database_path, "sp500_data.csv")
+stock_info_filename = os.path.join(database_path, "sp500_stock_info.csv")
+last_update_filename = os.path.join(database_path, "last_update.json")
+
+# Function to save last update date
+def save_last_update_date(date_str):
+    """Save the last update date"""
+    last_update = {
+        'last_date': date_str,
+        'updated_at': datetime.now().isoformat()
+    }
+    with open(last_update_filename, 'w') as f:
+        json.dump(last_update, f)
+
+# Function to load last update date
+def load_last_update_date():
+    """Load the last update date"""
+    if os.path.exists(last_update_filename):
+        with open(last_update_filename, 'r') as f:
+            last_update = json.load(f)
+            return last_update.get('last_date')
+    return None
+
+# Function to download stock information (sector, industry, country)
+def download_stock_info():
+    """Download stock information for all S&P 500 stocks"""
+    sp500_tickers = get_sp500_tickers()
+    stock_info_list = []
+    
+    print("Downloading stock information...")
+    
+    # Use ThreadPoolExecutor for parallel processing
+    def process_stock_info(ticker):
+        try:
+            print(f"Getting info for {ticker}...")
+            # Map ticker to correct Yahoo Finance symbol
+            yahoo_ticker = map_ticker_to_yahoo(ticker)
+            ticker_obj = yf.Ticker(yahoo_ticker)
+            info = ticker_obj.info
+            
+            stock_info = {
+                'Ticker': ticker,
+                'Company_Name': info.get('longName', ''),
+                'Sector': info.get('sector', ''),
+                'Industry': info.get('industry', ''),
+                'Country': info.get('country', ''),
+                'Exchange': info.get('exchange', ''),
+                'Market_Cap': info.get('marketCap', 0),
+                'IPO_Date': info.get('firstTradeDateEpochUtc', ''),
+                'Website': info.get('website', ''),
+                'Business_Summary': info.get('longBusinessSummary', '')
+            }
+            
+            return stock_info
+            
+        except Exception as e:
+            print(f"Error getting info for {ticker}: {e}")
+            # Return empty info for failed tickers
+            return {
+                'Ticker': ticker,
+                'Company_Name': '',
+                'Sector': '',
+                'Industry': '',
+                'Country': '',
+                'Exchange': '',
+                'Market_Cap': 0,
+                'IPO_Date': '',
+                'Website': '',
+                'Business_Summary': ''
+            }
+    
+    # Process stock info sequentially
+    for ticker in sp500_tickers:
+        stock_info = process_stock_info(ticker)
+        stock_info_list.append(stock_info)
+        
+        # Add small delay to avoid rate limiting
+        time.sleep(0.1)
+    
+    # Save stock info
+    stock_info_df = pd.DataFrame(stock_info_list)
+    stock_info_df.to_csv(stock_info_filename, index=False)
+    print(f"Stock information saved to {stock_info_filename}")
+    
+    return stock_info_df
+
+# Function to get quarterly financial data with actual earnings dates
+def get_quarterly_financials_with_dates(ticker):
+    """Get quarterly financial data with actual earnings dates for a ticker"""
+    try:
+        # Map ticker to correct Yahoo Finance symbol
+        yahoo_ticker = map_ticker_to_yahoo(ticker)
+        ticker_obj = yf.Ticker(yahoo_ticker)
+        
+        # Get quarterly financial statements
+        income_stmt = ticker_obj.quarterly_income_stmt
+        balance_sheet = ticker_obj.quarterly_balance_sheet
+        
+        # Get actual earnings dates
+        earnings_dates = ticker_obj.earnings_dates
+        
+        # Check if data is empty
+        if (income_stmt.empty if hasattr(income_stmt, 'empty') else len(income_stmt) == 0) and \
+           (balance_sheet.empty if hasattr(balance_sheet, 'empty') else len(balance_sheet) == 0):
+            return None, None
+        
+        # Extract key metrics
+        financial_data = {}
+        
+        if not (income_stmt.empty if hasattr(income_stmt, 'empty') else len(income_stmt) == 0):
+            if 'Basic EPS' in income_stmt.index:
+                financial_data['EPS'] = income_stmt.loc['Basic EPS', :]
+            if 'Total Revenue' in income_stmt.index:
+                financial_data['Revenue'] = income_stmt.loc['Total Revenue', :]
+            if 'Net Income' in income_stmt.index:
+                financial_data['Net_Income'] = income_stmt.loc['Net Income', :]
+        
+        if not (balance_sheet.empty if hasattr(balance_sheet, 'empty') else len(balance_sheet) == 0):
+            if 'Total Assets' in balance_sheet.index:
+                financial_data['Total_Assets'] = balance_sheet.loc['Total Assets', :]
+            if 'Total Debt' in balance_sheet.index:
+                financial_data['Total_Debt'] = balance_sheet.loc['Total Debt', :]
+            if 'Cash' in balance_sheet.index:
+                financial_data['Cash'] = balance_sheet.loc['Cash', :]
+        
+        # Calculate ratios
+        if 'Net_Income' in financial_data and 'Total_Assets' in financial_data:
+            financial_data['ROA'] = financial_data['Net_Income'] / financial_data['Total_Assets']
+        
+        return financial_data, earnings_dates
+        
+    except Exception as e:
+        print(f"Error getting financials for {ticker}: {e}")
+        return None, None
+
+# Function to expand quarterly data to daily data using actual earnings dates
+def expand_quarterly_to_daily_correct(quarterly_data, earnings_dates, start_date, end_date):
+    """Expand quarterly financial data to daily data using actual earnings dates with forward fill"""
+    if quarterly_data is None or len(quarterly_data) == 0:
+        return pd.DataFrame()
+    
+    # Create date range
+    date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+    
+    # Initialize daily data
+    daily_data = pd.DataFrame(index=date_range)
+    
+    # Set financial data only on actual earnings dates
+    for quarter_end, values in quarterly_data.items():
+        if quarter_end in date_range:
+            for col in values.index:
+                daily_data.loc[quarter_end, col] = values[col]
+    
+            # Apply forward fill (fill missing values with previous values)
+        daily_data = daily_data.ffill()
+    
+    return daily_data
+
+# Function to process single ticker data
+def process_ticker_data(ticker, start_date):
+    """Process data for a single ticker"""
+    try:
+        print(f"Downloading data for {ticker}...")
+        
+        # Map ticker to correct Yahoo Finance symbol
+        yahoo_ticker = map_ticker_to_yahoo(ticker)
+        
+        # Download price data with fallback
+        ticker_data = yf.download(yahoo_ticker, start=start_date, progress=False, auto_adjust=True)
+        
+        # If mapped ticker fails, try original ticker
+        if ticker_data.empty and yahoo_ticker != ticker:
+            print(f"Retrying with original ticker {ticker}...")
+            ticker_data = yf.download(ticker, start=start_date, progress=False, auto_adjust=True)
+        
+        if ticker_data.empty:
+            print(f"No data available for {ticker}")
+            return None
+        
+        # Get dividends and splits
+        ticker_obj = yf.Ticker(ticker)
+        dividends = ticker_obj.dividends
+        splits = ticker_obj.splits
+        
+        # Get stock info
+        info = ticker_obj.info
+        market_cap = info.get('marketCap', 0)
+        shares_outstanding = info.get('sharesOutstanding', 0)
+        
+        # Get quarterly financial data
+        quarterly_financials, earnings_dates = get_quarterly_financials_with_dates(ticker)
+        
+        # Process price data
+        ticker_data.dropna(inplace=True)
+        ticker_data.reset_index(inplace=True)
+        ticker_data['Ticker'] = ticker
+        
+        # Handle auto_adjust=True case where Adj Close column might not exist
+        if 'Adj Close' not in ticker_data.columns:
+            ticker_data['Adj Close'] = ticker_data['Close']
+        
+        # Ensure Adj_Close column exists (for consistency)
+        if 'Adj_Close' not in ticker_data.columns:
+            ticker_data['Adj_Close'] = ticker_data['Adj Close']
+        
+        # Add dividends and splits
+        ticker_data['Dividends'] = 0.0
+        ticker_data['Splits'] = 1.0
+        
+        # Fill dividends
+        if not dividends.empty:
+            for date, div in dividends.items():
+                mask = ticker_data['Date'].dt.date == date.date()
+                ticker_data.loc[mask, 'Dividends'] = div
+        
+        # Fill splits
+        if not splits.empty:
+            for date, split in splits.items():
+                mask = ticker_data['Date'].dt.date == date.date()
+                ticker_data.loc[mask, 'Splits'] = split
+        
+        # Add market cap and shares outstanding
+        ticker_data['Market_Cap'] = market_cap
+        ticker_data['Shares_Outstanding'] = shares_outstanding
+        
+        # Add financial data
+        ticker_data['EPS'] = np.nan
+        ticker_data['Revenue'] = np.nan
+        ticker_data['Net_Income'] = np.nan
+        ticker_data['Total_Assets'] = np.nan
+        ticker_data['Total_Debt'] = np.nan
+        ticker_data['Cash'] = np.nan
+        ticker_data['ROA'] = np.nan
+        
+        # Expand quarterly financials to daily data
+        if quarterly_financials and len(quarterly_financials) > 0:
+            daily_financials = expand_quarterly_to_daily_correct(quarterly_financials, earnings_dates, ticker_data['Date'].min(), ticker_data['Date'].max())
+            
+            if not daily_financials.empty:
+                # Merge financial data with price data
+                for col in daily_financials.columns:
+                    if col in ticker_data.columns:
+                        ticker_data[col] = daily_financials[col]
+        
+        # Reorder columns - ensure all required columns exist
+        required_columns = ['Date', 'Ticker', 'Open', 'High', 'Low', 'Close', 'Adj_Close', 'Volume', 
+                          'Dividends', 'Splits', 'Market_Cap', 'Shares_Outstanding', 
+                          'EPS', 'Revenue', 'Net_Income', 'Total_Assets', 'Total_Debt', 'Cash', 'ROA']
+        
+        # Check which columns exist and create missing ones
+        for col in required_columns:
+            if col not in ticker_data.columns:
+                if col == 'Adj_Close' and 'Adj Close' in ticker_data.columns:
+                    ticker_data['Adj_Close'] = ticker_data['Adj Close']
+                elif col == 'Adj_Close' and 'Adj Close' not in ticker_data.columns:
+                    ticker_data['Adj_Close'] = ticker_data['Close']  # Use Close as Adj_Close when auto_adjust=True
+                else:
+                    ticker_data[col] = np.nan
+        
+        # Reorder columns
+        ticker_data = ticker_data[required_columns]
+        
+        # Optimize data types
+        ticker_data = ticker_data.astype({
+            'Open': 'float32',
+            'High': 'float32',
+            'Low': 'float32',
+            'Close': 'float32',
+            'Adj_Close': 'float32',
+            'Volume': 'int32',
+            'Dividends': 'float32',
+            'Splits': 'float32',
+            'Market_Cap': 'float64',
+            'Shares_Outstanding': 'float64',
+            'EPS': 'float32',
+            'Revenue': 'float64',
+            'Net_Income': 'float64',
+            'Total_Assets': 'float64',
+            'Total_Debt': 'float64',
+            'Cash': 'float64',
+            'ROA': 'float32'
+        })
+        
+        print(f"Successfully processed data for {ticker} ({len(ticker_data)} rows)")
+        return ticker_data
+        
+    except Exception as e:
+        print(f"Error processing data for {ticker}: {e}")
+        return None
+
+# Function to download data and save to CSV incrementally
+def download_data(start_date="2000-01-01"):
+    # Get the list of S&P 500 tickers
+    sp500_tickers = get_sp500_tickers()
+    
+    # Initialize the CSV file with headers (expanded columns)
+    with open(filename, 'w') as f:
+        f.write('Date,Ticker,Open,High,Low,Close,Adj_Close,Volume,Dividends,Splits,Market_Cap,Shares_Outstanding,EPS,Revenue,Net_Income,Total_Assets,Total_Debt,Cash,ROA\n')
+    
+    # Process tickers in parallel with limited workers to avoid API rate limiting
+    successful_downloads = 0
+    failed_downloads = 0
+    
+    # Use ThreadPoolExecutor with limited workers to avoid API rate limiting
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {executor.submit(process_ticker_data, ticker, start_date): ticker for ticker in sp500_tickers}
+        
+        for future in as_completed(futures):
+            ticker = futures[future]
+            try:
+                ticker_data = future.result()
+                if ticker_data is not None:
+                    # Append to CSV immediately
+                    ticker_data.to_csv(filename, mode='a', index=False, header=False)
+                    print(f"Successfully appended data for {ticker} ({len(ticker_data)} rows)")
+                    successful_downloads += 1
+                else:
+                    failed_downloads += 1
+                gc.collect()
+                
+            except Exception as e:
+                print(f"Error processing {ticker}: {e}")
+                failed_downloads += 1
+    
+    print(f"Data download completed and saved to {filename}")
+    print(f"Successful downloads: {successful_downloads}")
+    print(f"Failed downloads: {failed_downloads}")
+
+# Function to update data
+def update_data():
+    # Check if file exists
+    if not os.path.exists(filename):
+        print(f"{filename} does not exist. Starting full download.")
+        download_data()
+        return
+    
+    # Load last update date
+    last_update_date = load_last_update_date()
+    
+    if last_update_date:
+        # Add one day to start from the next day
+        start_date = (pd.to_datetime(last_update_date) + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+        print(f"Starting update from {start_date} (last update: {last_update_date})")
+    else:
+        # If no last update date, start from 2000-01-01
+        start_date = "2000-01-01"
+        print(f"No last update date found. Starting from {start_date}")
+    
+    # Get the list of S&P 500 tickers
+    sp500_tickers = get_sp500_tickers()
+    
+    # Initialize a temporary CSV for new data
+    temp_filename = os.path.join(database_path, "sp500_data_new.csv")
+    with open(temp_filename, 'w') as f:
+        f.write('Date,Ticker,Open,High,Low,Close,Adj_Close,Volume,Dividends,Splits,Market_Cap,Shares_Outstanding,EPS,Revenue,Net_Income,Total_Assets,Total_Debt,Cash,ROA\n')
+    
+    # Process tickers in parallel with limited workers to avoid API rate limiting
+    successful_updates = 0
+    failed_updates = 0
+    
+    # Use ThreadPoolExecutor with limited workers to avoid API rate limiting
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {executor.submit(process_ticker_data, ticker, start_date): ticker for ticker in sp500_tickers}
+        
+        for future in as_completed(futures):
+            ticker = futures[future]
+            try:
+                ticker_data = future.result()
+                if ticker_data is not None:
+                    # Append to CSV immediately
+                    ticker_data.to_csv(filename, mode='a', index=False, header=False)
+                    print(f"Successfully updated data for {ticker} ({len(ticker_data)} rows)")
+                    successful_updates += 1
+                else:
+                    failed_updates += 1
+                gc.collect()
+                
+            except Exception as e:
+                print(f"Error processing {ticker}: {e}")
+                failed_updates += 1
+    
+    print(f"Successful updates: {successful_updates}")
+    print(f"Failed updates: {failed_updates}")
+    
+    # Remove duplicates from the CSV file
+    try:
+        # Read the entire CSV and remove duplicates
+        all_data = pd.read_csv(filename, parse_dates=['Date'])
+        all_data.drop_duplicates(subset=['Date', 'Ticker'], keep='last', inplace=True)
+        
+        # Optimize data types before saving
+        all_data = all_data.astype({
+            'Open': 'float32',
+            'High': 'float32',
+            'Low': 'float32',
+            'Close': 'float32',
+            'Adj_Close': 'float32',
+            'Volume': 'int32',
+            'Dividends': 'float32',
+            'Splits': 'float32',
+            'Market_Cap': 'float64',
+            'Shares_Outstanding': 'float64',
+            'EPS': 'float32',
+            'Revenue': 'float64',
+            'Net_Income': 'float64',
+            'Total_Assets': 'float64',
+            'Total_Debt': 'float64',
+            'Cash': 'float64',
+            'ROA': 'float32'
+        })
+        
+        all_data.to_csv(filename, index=False)
+        
+        # Save last update date
+        last_date = all_data['Date'].max()
+        save_last_update_date(last_date.strftime('%Y-%m-%d'))
+        
+        print(f"Data updated successfully in {filename}")
+        print(f"Last update date: {last_date.strftime('%Y-%m-%d')}")
+        
+    except Exception as e:
+        print(f"Error updating the main CSV: {e}")
+    
+    # Remove temporary file if it exists
+    if os.path.exists(temp_filename):
+        os.remove(temp_filename)
+
+# 데이터 로드 함수
+def load_data():
+    """저장된 데이터를 로드하는 함수"""
+    if os.path.exists(filename):
+        df = pd.read_csv(filename, parse_dates=['Date'])
+        print(f"데이터 로드 완료: {len(df)} 행, {df['Ticker'].nunique()} 개 종목")
+        return df
+    else:
+        print(f"데이터 파일이 존재하지 않습니다: {filename}")
+        return None
+
+# Run the update function
+if __name__ == "__main__":
+    print("S&P 500 데이터 업데이트 시작...")
+    
+    # First, download stock information
+    print("Downloading stock information...")
+    download_stock_info()
+    
+    # Then update price and financial data
+    update_data()
+    
+    # 데이터 로드 및 확인
+    df = load_data()
+    if df is not None:
+        print("\n데이터 미리보기:")
+        print(df.head())
+        print(f"\n데이터 정보:")
+        print(f"- 총 행 수: {len(df)}")
+        print(f"- 종목 수: {df['Ticker'].nunique()}")
+        print(f"- 날짜 범위: {df['Date'].min()} ~ {df['Date'].max()}")
+        print(f"- 컬럼 수: {len(df.columns)}")
+        print(f"- 컬럼 목록: {list(df.columns)}")

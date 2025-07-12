@@ -1,0 +1,6 @@
+
+lxml
+pandas
+yfinance
+openpyxl
+datetime
