@@ -1,0 +1,44 @@
+{
+    "visualization_settings": {
+        "target_rebalancing_frequency": "daily",
+        "available_frequencies": ["daily", "weekly", "monthly", "quarterly"],
+        "top_n_factors": 10,
+        "top_n_individual": 3,
+        "save_plots": true,
+        "plot_dpi": 300,
+        "sorting_criteria": "CumulativeReturn",
+        "available_sorting_criteria": [
+            "CumulativeReturn",
+            "CAGR", 
+            "SharpeRatio",
+            "SortinoRatio",
+            "IC",
+            "WinRate",
+            "MDD",
+            "Turnover",
+            "Skewness",
+            "Kurtosis"
+        ]
+    },
+    "output_settings": {
+        "output_directory": "../",
+        "plot_format": "png",
+        "include_comparison_plot": true,
+        "include_individual_plots": true,
+        "include_combined_plot": true
+    },
+    "data_settings": {
+        "base_data_directory": "calculated_alphas",
+        "metrics_filename": "enhanced_backtest_metrics.csv",
+        "factor_returns_prefix": "factor_returns_"
+    },
+    "plot_settings": {
+        "figure_size_comparison": [15, 10],
+        "figure_size_individual": [15, 12],
+        "figure_size_combined": [20, 15],
+        "color_palette": "husl",
+        "grid_alpha": 0.3,
+        "line_width": 2,
+        "alpha_transparency": 0.8
+    }
+} 

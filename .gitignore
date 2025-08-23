@@ -1,2 +1,7 @@
 dist/
-backend/venv/
+.venv/
+backend/_pycache/
+backend_models/pycache/
+calculated_alpha/
+database/
+GA_algorithm/_pycache/

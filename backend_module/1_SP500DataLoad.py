@@ -131,75 +131,78 @@ def download_stock_info():
 
 # Function to get quarterly financial data with actual earnings dates
 def get_quarterly_financials_with_dates(ticker):
-    """Get quarterly financial data with actual earnings dates for a ticker"""
     try:
-        # Map ticker to correct Yahoo Finance symbol
         yahoo_ticker = map_ticker_to_yahoo(ticker)
         ticker_obj = yf.Ticker(yahoo_ticker)
-        
-        # Get quarterly financial statements
+
         income_stmt = ticker_obj.quarterly_income_stmt
         balance_sheet = ticker_obj.quarterly_balance_sheet
-        
-        # Get actual earnings dates
         earnings_dates = ticker_obj.earnings_dates
-        
-        # Check if data is empty
-        if (income_stmt.empty if hasattr(income_stmt, 'empty') else len(income_stmt) == 0) and \
-           (balance_sheet.empty if hasattr(balance_sheet, 'empty') else len(balance_sheet) == 0):
-            return None, None
-        
-        # Extract key metrics
+
+        # Convert columns to datetime for alignment
+        if isinstance(income_stmt.columns[0], str):
+            income_stmt.columns = pd.to_datetime(income_stmt.columns)
+        if isinstance(balance_sheet.columns[0], str):
+            balance_sheet.columns = pd.to_datetime(balance_sheet.columns)
+
         financial_data = {}
-        
-        if not (income_stmt.empty if hasattr(income_stmt, 'empty') else len(income_stmt) == 0):
-            if 'Basic EPS' in income_stmt.index:
-                financial_data['EPS'] = income_stmt.loc['Basic EPS', :]
-            if 'Total Revenue' in income_stmt.index:
-                financial_data['Revenue'] = income_stmt.loc['Total Revenue', :]
-            if 'Net Income' in income_stmt.index:
-                financial_data['Net_Income'] = income_stmt.loc['Net Income', :]
-        
-        if not (balance_sheet.empty if hasattr(balance_sheet, 'empty') else len(balance_sheet) == 0):
-            if 'Total Assets' in balance_sheet.index:
-                financial_data['Total_Assets'] = balance_sheet.loc['Total Assets', :]
-            if 'Total Debt' in balance_sheet.index:
-                financial_data['Total_Debt'] = balance_sheet.loc['Total Debt', :]
-            if 'Cash' in balance_sheet.index:
-                financial_data['Cash'] = balance_sheet.loc['Cash', :]
-        
-        # Calculate ratios
-        if 'Net_Income' in financial_data and 'Total_Assets' in financial_data:
-            financial_data['ROA'] = financial_data['Net_Income'] / financial_data['Total_Assets']
-        
+
+        def safe_get(row_names, df):
+            """ row_names: list of possible row names """
+            for name in row_names:
+                if name in df.index:
+                    series = df.loc[name]
+                    if isinstance(series, pd.Series):  # 날짜별 재무정보가 있는 경우
+                        return series
+                    elif isinstance(series, (int, float)):  # 단일 숫자일 경우
+                        return pd.Series([series])
+            return pd.Series(dtype='float64')
+
+        # 재무제표 수집
+        financial_data = {}
+        financial_data['EPS'] = safe_get(['Basic EPS', 'Diluted EPS', 'Earnings Per Share'], income_stmt)
+        financial_data['Revenue'] = safe_get(['Total Revenue', 'TotalRevenue'], income_stmt)
+        financial_data['Net_Income'] = safe_get(['Net Income', 'NetIncome', 'NetIncomeApplicableToCommonShares'], income_stmt)
+        financial_data['Total_Assets'] = safe_get(['Total Assets', 'TotalAssets'], balance_sheet)
+        financial_data['Total_Debt'] = safe_get(['Total Debt', 'Long Term Debt', 'LongTermDebt', 'Short Long Term Debt'], balance_sheet)
+        financial_data['Cash'] = safe_get(['Cash', 'Cash And Cash Equivalents', 'CashAndCashEquivalents'], balance_sheet)
+
+        # ROA 계산
+        try:
+            roa = financial_data['Net_Income'] / financial_data['Total_Assets']
+            roa = roa.replace([float('inf'), -float('inf')], pd.NA).dropna()
+            financial_data['ROA'] = roa
+        except Exception as e:
+            print(f"ROA 계산 실패: {e}")
+            financial_data['ROA'] = pd.Series(dtype='float64')
+
+
+        # 실제 수치들이 하나라도 존재하는지 확인
+        if all([v.empty for v in financial_data.values()]):
+            return None, None
+
         return financial_data, earnings_dates
-        
+
     except Exception as e:
-        print(f"Error getting financials for {ticker}: {e}")
+        print(f"[{ticker}] 재무 데이터 수집 실패: {e}")
         return None, None
+
 
 # Function to expand quarterly data to daily data using actual earnings dates
 def expand_quarterly_to_daily_correct(quarterly_data, earnings_dates, start_date, end_date):
-    """Expand quarterly financial data to daily data using actual earnings dates with forward fill"""
-    if quarterly_data is None or len(quarterly_data) == 0:
+    if quarterly_data is None:
         return pd.DataFrame()
-    
-    # Create date range
-    date_range = pd.date_range(start=start_date, end=end_date, freq='D')
-    
-    # Initialize daily data
-    daily_data = pd.DataFrame(index=date_range)
-    
-    # Set financial data only on actual earnings dates
-    for quarter_end, values in quarterly_data.items():
-        if quarter_end in date_range:
-            for col in values.index:
-                daily_data.loc[quarter_end, col] = values[col]
-    
-            # Apply forward fill (fill missing values with previous values)
-        daily_data = daily_data.ffill()
-    
-    return daily_data
+
+    daily_index = pd.date_range(start=start_date, end=end_date, freq='D')
+    daily_df = pd.DataFrame(index=daily_index)
+
+    for metric, series in quarterly_data.items():
+        for date, value in series.items():
+            date = pd.to_datetime(date)
+            if date in daily_df.index:
+                daily_df.loc[date, metric] = value
+
+    return daily_df.ffill()
 
 # Function to process single ticker data
 def process_ticker_data(ticker, start_date):

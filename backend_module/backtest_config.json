@@ -1,0 +1,27 @@
+{
+    "backtest_settings": {
+        "start_date": "2000-01-01",
+        "end_date": "2025-07-30",
+        "max_factors": 101,
+        "quantile": 0.1,
+        "transaction_cost": 0.001,
+        "chunk_size": 100000,
+        "rebalancing_frequency": "weekly"
+    },
+    "output_settings": {
+        "output_directory": "calculated_alphas",
+        "metrics_filename": "enhanced_backtest_metrics.csv",
+        "factor_returns_prefix": "factor_returns_"
+    },
+    "performance_metrics": {
+        "include_cagr": true,
+        "include_sharpe": true,
+        "include_sortino": true,
+        "include_ic": true,
+        "include_mdd": true,
+        "include_winrate": true,
+        "include_skewness": true,
+        "include_kurtosis": true,
+        "include_turnover": true
+    }
+} 
