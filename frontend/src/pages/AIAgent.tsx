@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Card,
   Input,
@@ -36,15 +36,8 @@ const AIAgent: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  // 자동 스크롤 기능 제거됨
 
   const sendMessage = async () => {
     if (!inputValue.trim()) return;
@@ -227,7 +220,6 @@ const AIAgent: React.FC = () => {
                 )}
               />
             )}
-            <div ref={messagesEndRef} />
           </div>
 
           {/* 입력 영역 */}
@@ -241,7 +233,7 @@ const AIAgent: React.FC = () => {
               style={{ flex: 1 }}
               disabled={loading}
             />
-            <Space direction="vertical">
+            <Space>
               <Tooltip title="메시지 전송">
                 <Button
                   type="primary"

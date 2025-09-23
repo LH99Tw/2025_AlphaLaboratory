@@ -15,8 +15,10 @@ import os
 import sys
 import json
 import logging
-from datetime import datetime
-from flask import Flask, request, jsonify
+import hashlib
+import secrets
+from datetime import datetime, timedelta
+from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 import pandas as pd
 import numpy as np
@@ -222,7 +224,8 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, 'database'))
 
 # Flask 앱 초기화
 app = Flask(__name__)
-CORS(app)  # React 프론트엔드와의 통신을 위한 CORS 설정
+app.secret_key = secrets.token_hex(16)  # 세션용 비밀키
+CORS(app, origins=['http://localhost:3000'], supports_credentials=True)  # React 프론트엔드와의 통신을 위한 CORS 설정
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -238,6 +241,88 @@ database_manager = None
 task_status = {}
 backtest_status = {}
 ga_status = {}
+
+# 사용자 인증 관련 함수들
+def load_users():
+    """사용자 데이터 로드"""
+    try:
+        users_file = os.path.join(PROJECT_ROOT, 'database', 'userdata', 'users.json')
+        with open(users_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"사용자 데이터 로드 실패: {e}")
+        return {"users": [], "last_id": 0}
+
+def save_users(users_data):
+    """사용자 데이터 저장"""
+    try:
+        users_file = os.path.join(PROJECT_ROOT, 'database', 'userdata', 'users.json')
+        with open(users_file, 'w', encoding='utf-8') as f:
+            json.dump(users_data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        logger.error(f"사용자 데이터 저장 실패: {e}")
+        return False
+
+def hash_password(password):
+    """비밀번호 해시화"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def verify_password(password, hashed):
+    """비밀번호 검증"""
+    return hash_password(password) == hashed
+
+def find_user_by_username(username):
+    """사용자명으로 사용자 찾기"""
+    users_data = load_users()
+    for user in users_data['users']:
+        if user['username'] == username:
+            return user
+    return None
+
+def find_user_by_email(email):
+    """이메일로 사용자 찾기"""
+    users_data = load_users()
+    for user in users_data['users']:
+        if user['email'] == email:
+            return user
+    return None
+
+def create_user(username, email, password, name):
+    """새 사용자 생성"""
+    users_data = load_users()
+    
+    # 중복 체크
+    if find_user_by_username(username) or find_user_by_email(email):
+        return None
+    
+    new_user = {
+        "id": str(users_data['last_id'] + 1),
+        "username": username,
+        "email": email,
+        "password": hash_password(password),
+        "name": name,
+        "role": "user",
+        "created_at": datetime.now().isoformat(),
+        "last_login": None,
+        "is_active": True
+    }
+    
+    users_data['users'].append(new_user)
+    users_data['last_id'] += 1
+    
+    if save_users(users_data):
+        return new_user
+    return None
+
+def update_last_login(username):
+    """마지막 로그인 시간 업데이트"""
+    users_data = load_users()
+    for user in users_data['users']:
+        if user['username'] == username:
+            user['last_login'] = datetime.now().isoformat()
+            save_users(users_data)
+            break
 
 def initialize_systems():
     """시스템 초기화"""
@@ -338,6 +423,129 @@ def initialize_systems():
     except Exception as e:
         logger.error(f"❌ 시스템 초기화 실패: {str(e)}")
         logger.error(traceback.format_exc())
+
+# ===================== 인증 API =====================
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    """로그인"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+        
+        if not username or not password:
+            return jsonify({'error': '사용자명과 비밀번호를 입력해주세요'}), 400
+        
+        # 사용자 찾기
+        user = find_user_by_username(username)
+        if not user:
+            return jsonify({'error': '사용자를 찾을 수 없습니다'}), 401
+        
+        # 비밀번호 확인 (임시로 평문 비교, 실제로는 해시화된 비밀번호와 비교)
+        if password != user['password'] and not verify_password(password, user['password']):
+            return jsonify({'error': '비밀번호가 올바르지 않습니다'}), 401
+        
+        if not user['is_active']:
+            return jsonify({'error': '비활성화된 계정입니다'}), 401
+        
+        # 세션에 사용자 정보 저장
+        session['user_id'] = user['id']
+        session['username'] = user['username']
+        session['role'] = user['role']
+        
+        # 마지막 로그인 시간 업데이트
+        update_last_login(username)
+        
+        # 응답에서 비밀번호 제거
+        user_info = {k: v for k, v in user.items() if k != 'password'}
+        
+        return jsonify({
+            'message': '로그인 성공',
+            'user': user_info
+        })
+        
+    except Exception as e:
+        logger.error(f"로그인 오류: {str(e)}")
+        return jsonify({'error': '로그인 처리 중 오류가 발생했습니다'}), 500
+
+@app.route('/api/auth/register', methods=['POST'])
+def register():
+    """회원가입"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+        name = data.get('name', '').strip()
+        
+        if not all([username, email, password, name]):
+            return jsonify({'error': '모든 필드를 입력해주세요'}), 400
+        
+        # 사용자명 길이 검증
+        if len(username) < 3:
+            return jsonify({'error': '사용자명은 3글자 이상이어야 합니다'}), 400
+        
+        # 비밀번호 길이 검증
+        if len(password) < 6:
+            return jsonify({'error': '비밀번호는 6글자 이상이어야 합니다'}), 400
+        
+        # 중복 체크
+        if find_user_by_username(username):
+            return jsonify({'error': '이미 존재하는 사용자명입니다'}), 400
+        
+        if find_user_by_email(email):
+            return jsonify({'error': '이미 존재하는 이메일입니다'}), 400
+        
+        # 새 사용자 생성
+        new_user = create_user(username, email, password, name)
+        if not new_user:
+            return jsonify({'error': '회원가입 처리 중 오류가 발생했습니다'}), 500
+        
+        # 응답에서 비밀번호 제거
+        user_info = {k: v for k, v in new_user.items() if k != 'password'}
+        
+        return jsonify({
+            'message': '회원가입 성공',
+            'user': user_info
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"회원가입 오류: {str(e)}")
+        return jsonify({'error': '회원가입 처리 중 오류가 발생했습니다'}), 500
+
+@app.route('/api/auth/logout', methods=['POST'])
+def logout():
+    """로그아웃"""
+    try:
+        session.clear()
+        return jsonify({'message': '로그아웃 성공'})
+    except Exception as e:
+        logger.error(f"로그아웃 오류: {str(e)}")
+        return jsonify({'error': '로그아웃 처리 중 오류가 발생했습니다'}), 500
+
+@app.route('/api/auth/me', methods=['GET'])
+def get_current_user():
+    """현재 로그인한 사용자 정보"""
+    try:
+        if 'username' not in session:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        user = find_user_by_username(session['username'])
+        if not user:
+            session.clear()
+            return jsonify({'error': '사용자를 찾을 수 없습니다'}), 401
+        
+        # 응답에서 비밀번호 제거
+        user_info = {k: v for k, v in user.items() if k != 'password'}
+        
+        return jsonify({'user': user_info})
+        
+    except Exception as e:
+        logger.error(f"사용자 정보 조회 오류: {str(e)}")
+        return jsonify({'error': '사용자 정보 조회 중 오류가 발생했습니다'}), 500
+
+# ===================== 기존 API =====================
 
 @app.route('/api/health', methods=['GET'])
 def health_check():

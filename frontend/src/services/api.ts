@@ -7,6 +7,7 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5002/api
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000, // 30초 타임아웃
+  withCredentials: true, // 쿠키/세션 지원
   headers: {
     'Content-Type': 'application/json',
   },
@@ -133,6 +134,35 @@ export interface ChatResponse {
   timestamp: string;
 }
 
+// 인증 관련 인터페이스
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  name: string;
+  role: 'admin' | 'user';
+  created_at: string;
+  last_login: string | null;
+  is_active: boolean;
+}
+
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface RegisterRequest {
+  username: string;
+  email: string;
+  password: string;
+  name: string;
+}
+
+export interface AuthResponse {
+  message: string;
+  user: User;
+}
+
 export interface FactorList {
   success: boolean;
   factors: string[];
@@ -176,6 +206,19 @@ export interface HealthCheck {
 
 // API 함수들
 export const apiService = {
+  // 인증 관련 API
+  login: (credentials: LoginRequest): Promise<AuthResponse> =>
+    api.post('/auth/login', credentials).then(response => response.data),
+  
+  register: (userData: RegisterRequest): Promise<AuthResponse> =>
+    api.post('/auth/register', userData).then(response => response.data),
+  
+  logout: (): Promise<{ message: string }> =>
+    api.post('/auth/logout').then(response => response.data),
+  
+  getCurrentUser: (): Promise<{ user: User }> =>
+    api.get('/auth/me').then(response => response.data),
+
   // 서버 상태 확인
   health: (): Promise<HealthCheck> => 
     api.get('/health').then(response => response.data),
