@@ -1,26 +1,32 @@
 {
-  "name": "frontend",
-  "version": "0.1.0",
+  "name": "quant-finance-frontend",
+  "version": "1.0.0",
+  "description": "퀀트 금융 분석 시스템 프론트엔드",
   "private": true,
   "dependencies": {
-    "@testing-library/dom": "^10.4.0",
-    "@testing-library/jest-dom": "^6.6.3",
-    "@testing-library/react": "^16.3.0",
+    "@testing-library/jest-dom": "^5.16.5",
+    "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^13.5.0",
-    "@types/axios": "^0.9.36",
     "@types/jest": "^27.5.2",
-    "@types/node": "^16.18.126",
-    "@types/react": "^19.1.8",
-    "@types/react-dom": "^19.1.6",
-    "axios": "^1.10.0",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
+    "@types/node": "^16.18.50",
+    "@types/react": "^18.2.22",
+    "@types/react-dom": "^18.2.7",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.15.0",
     "react-scripts": "5.0.1",
     "typescript": "^4.9.5",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^2.1.4",
+    "axios": "^1.5.0",
+    "antd": "^5.9.0",
+    "recharts": "^2.8.0",
+    "@ant-design/icons": "^5.2.6",
+    "dayjs": "^1.11.9",
+    "lodash": "^4.17.21",
+    "@types/lodash": "^4.14.198"
   },
   "scripts": {
-    "start": "react-scripts start",
+    "start": "DANGEROUSLY_DISABLE_HOST_CHECK=true react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
@@ -42,5 +48,6 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  }
+  },
+  "proxy": "http://localhost:5002"
 }

@@ -1,4 +1,5 @@
 # 1.1_sp500_full.py
+# 생존편향을 줄이기 위해 만든 코드, 실용 X
 # -*- coding: utf-8 -*-
 
 import os
