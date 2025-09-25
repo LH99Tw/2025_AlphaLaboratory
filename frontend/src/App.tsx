@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Layout from './components/Layout';
 import Auth from './components/Auth';
 import Dashboard from './pages/Dashboard';
+import Portfolio from './pages/Portfolio';
 import Backtest from './pages/Backtest';
 import GAEvolution from './pages/GAEvolution';
 import AIAgent from './pages/AIAgent';
@@ -40,6 +41,7 @@ const AppContent: React.FC = () => {
       <Layout>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/portfolio" element={<Portfolio />} />
           <Route path="/backtest" element={<Backtest />} />
           <Route path="/ga-evolution" element={<GAEvolution />} />
           <Route path="/ai-agent" element={<AIAgent />} />

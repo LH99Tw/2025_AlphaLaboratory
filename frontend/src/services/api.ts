@@ -193,6 +193,75 @@ export interface TickerList {
   total_count: number;
 }
 
+// 포트폴리오 관련 인터페이스
+export interface PortfolioStock {
+  ticker: string;
+  alpha_value: number;
+  rank: number;
+  price?: number;
+  company_name?: string;
+}
+
+export interface PortfolioRequest {
+  alpha_factor: string;
+  top_percentage?: number;  // 퍼센트 방식 (기존 호환성)
+  top_count?: number;       // 개수 방식 (새로운 방식)
+  date?: string;
+}
+
+export interface PortfolioResponse {
+  success: boolean;
+  stocks: PortfolioStock[];
+  parameters: {
+    alpha_factor: string;
+    top_percentage?: number;
+    top_count?: number;
+    selection_method: 'percentage' | 'count';
+    date: string;
+    total_stocks: number;
+    selected_stocks: number;
+  };
+  summary: {
+    best_alpha_value: number | null;
+    worst_alpha_value: number | null;
+    selection_criteria: string;
+  };
+}
+
+export interface PortfolioPerformanceRequest {
+  alpha_factor: string;
+  top_percentage?: number;
+  top_count?: number;
+  start_date: string;
+  end_date: string;
+  transaction_cost?: number;
+  rebalancing_frequency?: string;
+}
+
+export interface PortfolioPerformance {
+  cagr: number;
+  sharpe_ratio: number;
+  max_drawdown: number;
+  ic_mean: number;
+  win_rate: number;
+  volatility: number;
+}
+
+export interface PortfolioPerformanceResponse {
+  success: boolean;
+  performance: PortfolioPerformance;
+  parameters: {
+    alpha_factor: string;
+    top_percentage?: number;
+    top_count?: number;
+    start_date: string;
+    end_date: string;
+    transaction_cost: number;
+    rebalancing_frequency: string;
+    quantile: number;
+  };
+}
+
 export interface HealthCheck {
   status: string;
   timestamp: string;
@@ -258,6 +327,14 @@ export const apiService = {
   // 티커 목록 조회
   getTickerList: (): Promise<TickerList> =>
     api.get('/data/ticker-list').then(response => response.data),
+
+  // 포트폴리오 종목 선별
+  getPortfolioStocks: (params: PortfolioRequest): Promise<PortfolioResponse> =>
+    api.post('/portfolio/stocks', params).then(response => response.data),
+
+  // 포트폴리오 성과 분석
+  getPortfolioPerformance: (params: PortfolioPerformanceRequest): Promise<PortfolioPerformanceResponse> =>
+    api.post('/portfolio/performance', params).then(response => response.data),
 };
 
 export default api;

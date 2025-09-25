@@ -10,6 +10,7 @@ import {
   ApiOutlined,
   UserOutlined,
   LogoutOutlined,
+  FundOutlined,
 } from '@ant-design/icons';
 import { apiService } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -52,6 +53,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       key: '/',
       icon: <DashboardOutlined />,
       label: <Link to="/">대시보드</Link>,
+    },
+    {
+      key: '/portfolio',
+      icon: <FundOutlined />,
+      label: <Link to="/portfolio">포트폴리오 관리</Link>,
     },
     {
       key: '/backtest',
@@ -214,6 +220,8 @@ const getPageTitle = (pathname: string): string => {
   switch (pathname) {
     case '/':
       return '대시보드';
+    case '/portfolio':
+      return '포트폴리오 관리';
     case '/backtest':
       return '백테스트';
     case '/ga-evolution':
