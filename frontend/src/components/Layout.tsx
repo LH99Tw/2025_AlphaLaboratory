@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layout as AntLayout, Menu, Typography, Badge, Spin } from 'antd';
+import { Layout as AntLayout, Menu, Typography, Badge, Spin, Button, Dropdown, Space } from 'antd';
 import { Link, useLocation } from 'react-router-dom';
 import {
   DashboardOutlined,
@@ -8,8 +8,12 @@ import {
   RobotOutlined,
   DatabaseOutlined,
   ApiOutlined,
+  UserOutlined,
+  LogoutOutlined,
+  FundOutlined,
 } from '@ant-design/icons';
 import { apiService } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 const { Header, Sider, Content } = AntLayout;
 const { Title } = Typography;
@@ -21,6 +25,7 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'loading'>('loading');
+  const { user, logout } = useAuth();
   const location = useLocation();
 
   // 서버 상태 확인
@@ -48,6 +53,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       key: '/',
       icon: <DashboardOutlined />,
       label: <Link to="/">대시보드</Link>,
+    },
+    {
+      key: '/portfolio',
+      icon: <FundOutlined />,
+      label: <Link to="/portfolio">포트폴리오 관리</Link>,
     },
     {
       key: '/backtest',
@@ -152,6 +162,44 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 </span>
               } 
             />
+            
+            {user && (
+              <Dropdown
+                menu={{
+                  items: [
+                    {
+                      key: 'user-info',
+                      label: (
+                        <div style={{ padding: '8px 0' }}>
+                          <div style={{ fontWeight: 'bold' }}>{user.name}</div>
+                          <div style={{ color: '#999', fontSize: '12px' }}>
+                            @{user.username} ({user.role})
+                          </div>
+                        </div>
+                      ),
+                      disabled: true,
+                    },
+                    {
+                      type: 'divider',
+                    },
+                    {
+                      key: 'logout',
+                      label: '로그아웃',
+                      icon: <LogoutOutlined />,
+                      onClick: logout,
+                    },
+                  ],
+                }}
+                placement="bottomRight"
+              >
+                <Button type="text" style={{ padding: '4px 8px' }}>
+                  <Space>
+                    <UserOutlined />
+                    {user.name}
+                  </Space>
+                </Button>
+              </Dropdown>
+            )}
           </div>
         </Header>
         
@@ -172,6 +220,8 @@ const getPageTitle = (pathname: string): string => {
   switch (pathname) {
     case '/':
       return '대시보드';
+    case '/portfolio':
+      return '포트폴리오 관리';
     case '/backtest':
       return '백테스트';
     case '/ga-evolution':
