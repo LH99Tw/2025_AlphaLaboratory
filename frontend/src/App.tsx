@@ -10,9 +10,9 @@ import Auth from './components/Auth';
 import Dashboard from './pages/Dashboard';
 import Portfolio from './pages/Portfolio';
 import Backtest from './pages/Backtest';
-import GAEvolution from './pages/GAEvolution';
-import AIAgent from './pages/AIAgent';
-import DataExplorer from './pages/DataExplorer';
+import Simulation from './pages/Simulation';
+import AlphaPool from './pages/AlphaPool';
+import AlphaIncubator from './pages/AlphaIncubator';
 
 import './App.css';
 
@@ -43,9 +43,9 @@ const AppContent: React.FC = () => {
           <Route path="/" element={<Dashboard />} />
           <Route path="/portfolio" element={<Portfolio />} />
           <Route path="/backtest" element={<Backtest />} />
-          <Route path="/ga-evolution" element={<GAEvolution />} />
-          <Route path="/ai-agent" element={<AIAgent />} />
-          <Route path="/data-explorer" element={<DataExplorer />} />
+          <Route path="/simulation" element={<Simulation />} />
+          <Route path="/alpha-pool" element={<AlphaPool />} />
+          <Route path="/alpha-incubator" element={<AlphaIncubator />} />
         </Routes>
       </Layout>
     </Router>

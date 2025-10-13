@@ -4,13 +4,13 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   DashboardOutlined,
   BarChartOutlined,
-  ExperimentOutlined,
-  RobotOutlined,
-  DatabaseOutlined,
   ApiOutlined,
   UserOutlined,
   LogoutOutlined,
   FundOutlined,
+  PlayCircleOutlined,
+  CrownOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { apiService } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -65,19 +65,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       label: <Link to="/backtest">백테스트</Link>,
     },
     {
-      key: '/ga-evolution',
-      icon: <ExperimentOutlined />,
-      label: <Link to="/ga-evolution">GA 진화 알고리즘</Link>,
+      key: '/simulation',
+      icon: <PlayCircleOutlined />,
+      label: <Link to="/simulation">모의투자</Link>,
     },
     {
-      key: '/ai-agent',
-      icon: <RobotOutlined />,
-      label: <Link to="/ai-agent">AI 에이전트</Link>,
+      key: '/alpha-pool',
+      icon: <CrownOutlined />,
+      label: <Link to="/alpha-pool">알파 Pool</Link>,
     },
     {
-      key: '/data-explorer',
-      icon: <DatabaseOutlined />,
-      label: <Link to="/data-explorer">데이터 탐색</Link>,
+      key: '/alpha-incubator',
+      icon: <ThunderboltOutlined />,
+      label: <Link to="/alpha-incubator">알파 부화장</Link>,
     },
   ];
 
@@ -224,12 +224,12 @@ const getPageTitle = (pathname: string): string => {
       return '포트폴리오 관리';
     case '/backtest':
       return '백테스트';
-    case '/ga-evolution':
-      return 'GA 진화 알고리즘';
-    case '/ai-agent':
-      return 'AI 에이전트';
-    case '/data-explorer':
-      return '데이터 탐색';
+    case '/simulation':
+      return '모의투자';
+    case '/alpha-pool':
+      return '알파 Pool';
+    case '/alpha-incubator':
+      return '알파 부화장';
     default:
       return '퀀트 분석 시스템';
   }
