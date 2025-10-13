@@ -8,6 +8,77 @@
 - **투명한 유리같은 재질과 무광택 검정색 흑철같은 색상과 그 대비인 흰 색을**을 주로 사용한다.
 - **참고하는 것은 iOS 17 Liquid Glass**의 유리재질같은 디자인 컨셉과 **ComfyUI, Make** 등의 Workflow 같은 사용자가 사고과정을 쉽게 보고, 수정할 수 있도록 하는 것.
 
+## [애플식 UI 디자인 원칙]
+### 🍎 Apple Human Interface Guidelines 기반
+
+#### 📐 Border Radius (테두리 둥글기)
+- **Small Elements (버튼, 태그)**: `8px` - 작은 요소
+- **Medium Elements (카드, 입력 필드)**: `12px` - 중간 크기 요소
+- **Large Elements (모달, 섹션)**: `16px - 20px` - 큰 요소
+- **Extra Large (히어로 카드)**: `24px - 28px` - 특별한 강조 요소
+- **Dynamic Island**: `28px` - 애플의 다이나믹 아일랜드 스타일
+
+#### 🌑 Shadow (그림자) 시스템
+**Elevation 1 (미세한 떠있음)**
+```css
+box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);
+```
+
+**Elevation 2 (일반 카드)**
+```css
+box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+```
+
+**Elevation 3 (강조 요소)**
+```css
+box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05);
+```
+
+**Elevation 4 (모달, 팝업)**
+```css
+box-shadow: 0 20px 25px rgba(0, 0, 0, 0.15), 0 10px 10px rgba(0, 0, 0, 0.04);
+```
+
+**Elevation 5 (최상위)**
+```css
+box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25), 0 12px 24px rgba(0, 0, 0, 0.12);
+```
+
+#### 📏 Spacing (간격) 시스템
+- **4px** (0.25rem) - 최소 간격
+- **8px** (0.5rem) - 밀접한 요소
+- **12px** (0.75rem) - 관련 요소
+- **16px** (1rem) - 기본 간격
+- **24px** (1.5rem) - 섹션 내 간격
+- **32px** (2rem) - 섹션 간 간격
+- **48px** (3rem) - 큰 섹션 간격
+- **64px** (4rem) - 메인 섹션 분리
+
+#### 🎨 Blur (블러) 효과
+- **Subtle Blur**: `blur(8px)` - 미묘한 블러
+- **Medium Blur**: `blur(12px)` - 일반 글래스 효과
+- **Strong Blur**: `blur(20px)` - 강한 글래스 효과
+- **Extra Strong**: `blur(30px)` - 배경 분리용
+
+#### 📱 Touch Target (터치 영역)
+- **최소 크기**: `44px × 44px` (iOS 표준)
+- **권장 크기**: `48px × 48px` (더 편한 사용)
+- **아이콘 실제 크기**: `20px - 24px` (패딩 포함 44px)
+
+#### 🎭 Transition (전환) 타이밍
+- **Instant**: `0.1s` - 즉각 반응
+- **Quick**: `0.2s` - 빠른 피드백
+- **Standard**: `0.3s - 0.4s` - 일반 전환
+- **Smooth**: `0.5s - 0.6s` - 부드러운 전환
+- **Slow**: `0.8s - 1s` - 강조 애니메이션
+
+#### 🌊 애플식 이징 함수
+- **Standard Ease**: `cubic-bezier(0.4, 0.0, 0.2, 1)` - 기본
+- **Deceleration**: `cubic-bezier(0.0, 0.0, 0.2, 1)` - 감속
+- **Acceleration**: `cubic-bezier(0.4, 0.0, 1, 1)` - 가속
+- **Sharp**: `cubic-bezier(0.4, 0.0, 0.6, 1)` - 날카로운
+- **Spring (추천)**: `cubic-bezier(0.16, 1, 0.3, 1)` - 스프링 효과
+
 ## [컬러 팔레트]
 ### 🎨 주요 색상 (Chrome Dark Mode + 따뜻한 금색)
 - **Background Dark**: `#202124` - 메인 배경 (Chrome Dark)

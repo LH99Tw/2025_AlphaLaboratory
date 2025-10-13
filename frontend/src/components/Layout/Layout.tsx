@@ -1,6 +1,7 @@
 import React, { ReactNode, useState, createContext, useContext } from 'react';
 import styled from 'styled-components';
 import { Sidebar } from './Sidebar';
+import { Footer } from './Footer';
 import { LiquidBackground } from '../common/LiquidBackground';
 import { useAuth } from '../../contexts/AuthContext';
 import { LogoutOutlined, UserOutlined } from '@ant-design/icons';
@@ -57,9 +58,10 @@ const Header = styled.header`
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: ${theme.spacing.lg} ${theme.spacing.xl};
+  padding: ${theme.spacing.sm} ${theme.spacing.xl};
+  background: ${theme.colors.backgroundDark};
   border-bottom: 1px solid ${theme.colors.border};
-  margin-bottom: ${theme.spacing.xl};
+  margin-bottom: ${theme.spacing.lg};
 `;
 
 const HeaderLeft = styled.div`
@@ -141,6 +143,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           <ContentWrapper>
             {children}
           </ContentWrapper>
+          <Footer />
         </MainContent>
       </LayoutContainer>
     </SidebarContext.Provider>

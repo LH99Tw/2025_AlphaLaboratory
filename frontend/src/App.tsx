@@ -13,6 +13,7 @@ import { Backtest } from './pages/Backtest';
 import { Simulation } from './pages/Simulation';
 import { AlphaPool } from './pages/AlphaPool';
 import { AlphaIncubator } from './pages/AlphaIncubator';
+import { About } from './pages/About';
 
 import './App.css';
 
@@ -47,6 +48,7 @@ const AppContent: React.FC = () => {
           <Route path="/simulation" element={<Simulation />} />
           <Route path="/alpha-pool" element={<AlphaPool />} />
           <Route path="/alpha-incubator" element={<AlphaIncubator />} />
+          <Route path="/about" element={<About />} />
         </Routes>
       </Layout>
     </Router>

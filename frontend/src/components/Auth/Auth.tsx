@@ -23,8 +23,12 @@ const AuthContainer = styled.div`
 
 const AuthCard = styled(GlassCard)`
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
   animation: ${fadeIn} 0.5s ease;
+  padding: ${theme.spacing.xl};
+  backdrop-filter: blur(20px);
+  border: 1px solid ${theme.colors.liquidGlassBorder};
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 `;
 
 const Logo = styled.div`
@@ -34,11 +38,12 @@ const Logo = styled.div`
   .logo-icon {
     font-size: 48px;
     margin-bottom: ${theme.spacing.md};
+    color: ${theme.colors.textPrimary};
   }
   
   h1 {
     font-size: ${theme.typography.fontSize.h2};
-    color: ${theme.colors.accentGold};
+    color: ${theme.colors.textPrimary};
     font-weight: 700;
     font-family: ${theme.typography.fontFamily.display};
     margin: 0;
@@ -54,18 +59,18 @@ const Logo = styled.div`
 const Form = styled.form`
   display: flex;
   flex-direction: column;
-  gap: ${theme.spacing.lg};
+  gap: ${theme.spacing.xl};
 `;
 
 const InputGroup = styled.div`
   display: flex;
   flex-direction: column;
-  gap: ${theme.spacing.sm};
+  gap: ${theme.spacing.md};
 `;
 
 const Label = styled.label`
-  color: ${theme.colors.textSecondary};
-  font-size: ${theme.typography.fontSize.caption};
+  color: ${theme.colors.textPrimary};
+  font-size: ${theme.typography.fontSize.body};
   font-weight: 600;
 `;
 
@@ -107,9 +112,9 @@ export const Auth: React.FC<AuthProps> = ({ onLoginSuccess }) => {
       <AuthContainer>
         <AuthCard>
           <Logo>
-            <div className="logo-icon">⚗️</div>
-            <h1>QUANT LAB</h1>
-            <p>알파 팩터 연구소</p>
+            <div className="logo-icon">○</div>
+            <h1>Smart Analytics</h1>
+            <p>알고리즘 트레이딩 플랫폼</p>
           </Logo>
 
           <Form onSubmit={handleSubmit}>
