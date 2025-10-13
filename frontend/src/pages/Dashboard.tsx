@@ -114,46 +114,75 @@ const StatusBadge = styled.div<{ $status: 'healthy' | 'unhealthy' }>`
 `;
 
 export const Dashboard: React.FC = () => {
-  const [metrics] = useState<DashboardMetrics>({
-    totalAlphas: 101,
-    activeBacktests: 3,
-    portfolioValue: 1250000,
-    dailyPnL: 15420,
+  const [metrics, setMetrics] = useState<DashboardMetrics>({
+    totalAlphas: 0,
+    activeBacktests: 0,
+    portfolioValue: 0,
+    dailyPnL: 0,
   });
 
   const [systemStatus, setSystemStatus] = useState<'healthy' | 'unhealthy'>('healthy');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // 시스템 상태 확인
     checkHealth()
       .then(data => {
         setSystemStatus(data.status === 'healthy' ? 'healthy' : 'unhealthy');
+        // Mock 메트릭 데이터 (실제 API가 있다면 여기서 호출)
+        setMetrics({
+          totalAlphas: 101,
+          activeBacktests: 3,
+          portfolioValue: 1250000,
+          dailyPnL: 15420,
+        });
       })
-      .catch(() => setSystemStatus('unhealthy'));
+      .catch(() => {
+        setSystemStatus('unhealthy');
+        // 오프라인 모드 - 기본값 유지
+        setMetrics({
+          totalAlphas: 101,
+          activeBacktests: 0,
+          portfolioValue: 0,
+          dailyPnL: 0,
+        });
+      })
+      .finally(() => setLoading(false));
   }, []);
+
+  if (loading) {
+    return (
+      <DashboardContainer>
+        <div style={{ textAlign: 'center', padding: theme.spacing.xxl }}>
+          <p style={{ color: theme.colors.textSecondary }}>Loading...</p>
+        </div>
+      </DashboardContainer>
+    );
+  }
 
   return (
     <DashboardContainer>
       <div>
-        <Title>대시보드</Title>
+        <Title>Dashboard</Title>
         <p style={{ color: theme.colors.textSecondary, marginTop: theme.spacing.sm }}>
-          퀀트 트레이딩 시스템 현황
+          Quant trading system overview
         </p>
       </div>
 
-      <StatusBadge $status={systemStatus}>
+        <StatusBadge $status={systemStatus}>
         <div style={{ 
           width: '8px', 
           height: '8px', 
           borderRadius: '50%', 
           background: systemStatus === 'healthy' ? theme.colors.success : theme.colors.error 
         }} />
-        {systemStatus === 'healthy' ? '시스템 정상' : '시스템 점검 필요'}
+        {systemStatus === 'healthy' ? 'System Online' : 'System Check Required'}
       </StatusBadge>
 
       <MetricsGrid>
         <MetricCard>
           <MetricHeader>
-            <MetricTitle>등록된 알파</MetricTitle>
+            <MetricTitle>Registered Alphas</MetricTitle>
             <MetricIcon $color={theme.colors.accentGold}>
               <ThunderboltOutlined />
             </MetricIcon>
@@ -161,26 +190,26 @@ export const Dashboard: React.FC = () => {
           <MetricValue>{metrics.totalAlphas}</MetricValue>
           <MetricChange $positive={true}>
             <RiseOutlined />
-            +5개 (이번 주)
+            +5 (this week)
           </MetricChange>
         </MetricCard>
 
         <MetricCard>
           <MetricHeader>
-            <MetricTitle>실행 중인 백테스트</MetricTitle>
+            <MetricTitle>Active Backtests</MetricTitle>
             <MetricIcon $color={theme.colors.info}>
               <ExperimentOutlined />
             </MetricIcon>
           </MetricHeader>
           <MetricValue>{metrics.activeBacktests}</MetricValue>
           <MetricChange $positive={true}>
-            <span>진행 중</span>
+            <span>Running</span>
           </MetricChange>
         </MetricCard>
 
         <MetricCard>
           <MetricHeader>
-            <MetricTitle>포트폴리오 가치</MetricTitle>
+            <MetricTitle>Portfolio Value</MetricTitle>
             <MetricIcon $color={theme.colors.success}>
               $
             </MetricIcon>
@@ -188,13 +217,13 @@ export const Dashboard: React.FC = () => {
           <MetricValue>${(metrics.portfolioValue / 1000000).toFixed(2)}M</MetricValue>
           <MetricChange $positive={true}>
             <RiseOutlined />
-            +2.3% (당일)
+            +2.3% (today)
           </MetricChange>
         </MetricCard>
 
         <MetricCard>
           <MetricHeader>
-            <MetricTitle>일일 수익</MetricTitle>
+            <MetricTitle>Daily P&L</MetricTitle>
             <MetricIcon $color={metrics.dailyPnL >= 0 ? theme.colors.success : theme.colors.error}>
               {metrics.dailyPnL >= 0 ? <RiseOutlined /> : <FallOutlined />}
             </MetricIcon>
@@ -209,24 +238,24 @@ export const Dashboard: React.FC = () => {
 
       <ChartsSection>
         <ChartCard>
-          <ChartTitle>최근 백테스트 성과</ChartTitle>
+          <ChartTitle>Recent Backtest Performance</ChartTitle>
           <p style={{ color: theme.colors.textSecondary }}>
-            차트 구현 예정 (Recharts 사용)
+            Chart implementation (Coming Soon)
           </p>
         </ChartCard>
 
         <ChartCard>
-          <ChartTitle>알파 팩터 분포</ChartTitle>
+          <ChartTitle>Alpha Factor Distribution</ChartTitle>
           <p style={{ color: theme.colors.textSecondary }}>
-            차트 구현 예정 (Recharts 사용)
+            Chart implementation (Coming Soon)
           </p>
         </ChartCard>
       </ChartsSection>
 
       <GlassCard>
-        <ChartTitle>최근 활동</ChartTitle>
+        <ChartTitle>Recent Activity</ChartTitle>
         <p style={{ color: theme.colors.textSecondary }}>
-          활동 로그 테이블 구현 예정
+          Activity log table (Coming Soon)
         </p>
       </GlassCard>
     </DashboardContainer>

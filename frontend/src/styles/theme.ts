@@ -1,27 +1,35 @@
-// 🎨 디자인 시스템 테마
+// 🎨 디자인 시스템 테마 - Chrome Dark Mode + Liquid Glass
 export const theme = {
   colors: {
-    // 배경색
-    backgroundDark: '#0A0E27',
-    backgroundSecondary: '#141B3D',
+    // Chrome Dark Mode 배경색
+    backgroundDark: '#202124',
+    backgroundSecondary: '#292A2D',
+    backgroundTertiary: '#35363A',
     
-    // 유리 효과
-    liquidGlass: 'rgba(255, 255, 255, 0.05)',
-    liquidGlassBorder: 'rgba(255, 255, 255, 0.1)',
+    // Liquid Glass 효과 (더 투명하고 부드러운)
+    liquidGlass: 'rgba(255, 255, 255, 0.03)',
+    liquidGlassBorder: 'rgba(255, 255, 255, 0.08)',
+    liquidGlassHover: 'rgba(255, 255, 255, 0.06)',
     
-    // 텍스트
-    textPrimary: '#FFFFFF',
-    textSecondary: '#B4B4C5',
+    // Chrome 테두리
+    border: '#3C4043',
+    borderHover: '#5F6368',
     
-    // 포인트 컬러
+    // 텍스트 (Chrome 스타일)
+    textPrimary: '#E8EAED',
+    textSecondary: '#9AA0A6',
+    textTertiary: '#5F6368',
+    
+    // 포인트 컬러 (부드러운 그라데이션)
+    accentPrimary: '#8AB4F8',  // Chrome 블루
     accentGold: '#D4AF37',
-    deepBlue: '#1E3A8A',
+    accentGradient: 'linear-gradient(135deg, #8AB4F8 0%, #A8C7FA 100%)',
     
     // 상태 컬러
-    success: '#10B981',
-    warning: '#F59E0B',
-    error: '#EF4444',
-    info: '#3B82F6',
+    success: '#81C995',
+    warning: '#FDD663',
+    error: '#F28B82',
+    info: '#8AB4F8',
   },
   
   // 타이포그래피
@@ -68,11 +76,13 @@ export const theme = {
     slow: '0.5s ease',
   },
   
-  // 그림자
+  // 그림자 (Liquid Glass 스타일)
   shadows: {
-    glass: '0 8px 32px rgba(0, 0, 0, 0.3)',
-    glow: '0 0 20px rgba(212, 175, 55, 0.3), 0 0 40px rgba(212, 175, 55, 0.2)',
-    hover: '0 8px 20px rgba(212, 175, 55, 0.4)',
+    glass: '0 8px 32px 0 rgba(0, 0, 0, 0.37)',
+    glassInner: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.05)',
+    glow: '0 0 30px rgba(138, 180, 248, 0.15), 0 0 60px rgba(138, 180, 248, 0.1)',
+    hover: '0 8px 40px rgba(0, 0, 0, 0.5)',
+    soft: '0 2px 8px rgba(0, 0, 0, 0.25)',
   },
   
   // 차트 색상

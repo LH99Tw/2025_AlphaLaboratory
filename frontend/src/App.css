@@ -1,4 +1,4 @@
-/* 🎨 Global Styles */
+/* 🎨 Global Styles - Chrome Dark Mode */
 
 * {
   margin: 0;
@@ -12,8 +12,8 @@ body {
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: #0A0E27;
-  color: #FFFFFF;
+  background: #202124;
+  color: #E8EAED;
 }
 
 code {
@@ -21,73 +21,78 @@ code {
     monospace;
 }
 
-/* Ant Design 커스텀 스타일 */
+/* Ant Design 커스텀 스타일 - Chrome Dark */
 .ant-select-dropdown {
-  background: #141B3D !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  background: #292A2D !important;
+  border: 1px solid #3C4043 !important;
+  border-radius: 12px !important;
 }
 
 .ant-select-item {
-  color: #FFFFFF !important;
+  color: #E8EAED !important;
+  border-radius: 8px !important;
 }
 
 .ant-select-item-option-selected {
-  background: rgba(212, 175, 55, 0.15) !important;
-  color: #D4AF37 !important;
+  background: rgba(138, 180, 248, 0.15) !important;
+  color: #8AB4F8 !important;
 }
 
 .ant-select-item-option-active {
-  background: rgba(212, 175, 55, 0.1) !important;
+  background: rgba(138, 180, 248, 0.08) !important;
 }
 
 .ant-picker-dropdown {
-  background: #141B3D !important;
+  background: #292A2D !important;
+  border-radius: 12px !important;
 }
 
 .ant-picker-panel-container {
-  background: #141B3D !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  background: #292A2D !important;
+  border: 1px solid #3C4043 !important;
+  border-radius: 12px !important;
 }
 
 .ant-picker-cell-in-view {
-  color: #FFFFFF !important;
+  color: #E8EAED !important;
 }
 
 .ant-picker-cell-selected .ant-picker-cell-inner {
-  background: #D4AF37 !important;
-  color: #0A0E27 !important;
+  background: #8AB4F8 !important;
+  color: #202124 !important;
 }
 
 .ant-picker-header {
-  color: #FFFFFF !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #E8EAED !important;
+  border-bottom: 1px solid #3C4043 !important;
 }
 
 .ant-picker-header-view button {
-  color: #FFFFFF !important;
+  color: #E8EAED !important;
 }
 
 .ant-spin-dot-item {
-  background-color: #D4AF37 !important;
+  background-color: #8AB4F8 !important;
 }
 
-/* 스크롤바 스타일 */
+/* 스크롤바 스타일 - Chrome Dark */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 12px;
+  height: 12px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
+  background: #292A2D;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(212, 175, 55, 0.3);
-  border-radius: 4px;
+  background: #5F6368;
+  border-radius: 6px;
+  border: 3px solid #292A2D;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(212, 175, 55, 0.5);
+  background: #8AB4F8;
 }
 
 /* 애니메이션 효과 */

@@ -65,6 +65,12 @@ export const sendChatMessage = async (message: string, userId: string = 'user123
   };
 };
 
+// Alias for compatibility
+export const chatWithAgent = async (message: string) => {
+  const response = await api.post('/api/chat', { message });
+  return response.data;
+};
+
 // 🧬 GA 알고리즘 API
 export const runGA = async (params: GAParams): Promise<ApiResponse> => {
   const response = await api.post('/api/ga/run', params);

@@ -28,6 +28,39 @@
     - 레퍼런스 이미지 및 컴포넌트 라이브러리 정리
 
 [5](20251014):프론트엔드 전면 재설계 및 디자인 시스템 적용
+
+[6](20251014):Chrome Dark + Liquid Glass UI 완성 및 노드 기반 인터페이스 구현
+    
+    ### 디자인 시스템 완성
+    - Chrome Dark Mode 색상 팔레트 (#202124, #292A2D, #3C4043) 적용
+    - Liquid Glass 효과: 투명도, backdrop-filter, 그라데이션 테두리
+    - Threads.com 스타일 레이아웃: 중앙 정렬 (max-width: 1400px)
+    - 사이드바 토글 기능 (280px ↔ 80px), smooth cubic-bezier 애니메이션
+    - 메뉴 영어화: Dashboard, Backtest, Portfolio, Alpha Pool, Incubator, Paper Trading
+    - 페이지 아이콘: 흰색 원형 SVG
+    
+    ### 노드 기반 UI 구현 (ReactFlow)
+    - **AlphaPool**: GA 진화 프로세스 시각화
+      * 데이터 소스 → GA 엔진 → 알파 세대 → 최적 알파 선택
+      * 실시간 노드 연결, 애니메이션, 진화 상태 표시
+    - **AlphaIncubator**: AI 에이전트 워크플로우
+      * Coordinator → Data Analyst/Alpha Researcher/Portfolio Manager → 응답
+      * 채팅 인터페이스 + 노드 기반 워크플로우 동시 표시
+      * 다중 에이전트 협업 시각화
+    
+    ### 백엔드 API 연동
+    - Health Check: `/api/health`
+    - Backtest: `/api/backtest` (POST)
+    - GA Evolution: `/api/ga/run` (POST)
+    - AI Chat: `/api/chat` (POST, 키워드 기반 응답)
+    - 로딩 상태 처리, 오프라인 모드 대응
+    - API_ENDPOINTS.md 문서 생성
+    
+    ### 기술 스택 추가
+    - reactflow: 노드 기반 UI 구현
+    - @reactflow/core, @reactflow/background, @reactflow/controls
+    - TypeScript 타입 안정성 강화
+    
     - 기존 frontend/src 폴더 삭제 후 처음부터 재구축
     - Design.md 대폭 보완: 구체적인 컴포넌트 스타일 가이드 추가
       * 카드, 버튼, 입력 필드, 테이블, 차트 등 컴포넌트별 상세 스타일

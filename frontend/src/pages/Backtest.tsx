@@ -162,7 +162,7 @@ export const Backtest: React.FC = () => {
   return (
     <BacktestContainer>
       <LeftPanel>
-        <Title>백테스트</Title>
+        <Title>Backtest</Title>
 
         <GlassCard>
           <FormGroup>
@@ -171,7 +171,7 @@ export const Backtest: React.FC = () => {
               mode="multiple"
               placeholder="알파 팩터 선택"
               value={params.factors}
-              onChange={(value: string[]) => setParams({ ...params, factors: value })}
+              onChange={(value) => setParams({ ...params, factors: value as string[] })}
               options={[
                 { value: 'alpha001', label: 'Alpha 001' },
                 { value: 'alpha002', label: 'Alpha 002' },
@@ -204,7 +204,7 @@ export const Backtest: React.FC = () => {
             <Label>리밸런싱 주기</Label>
             <StyledSelect
               value={params.rebalancing_frequency}
-              onChange={(value: 'daily' | 'weekly' | 'monthly' | 'quarterly') => setParams({ ...params, rebalancing_frequency: value })}
+              onChange={(value) => setParams({ ...params, rebalancing_frequency: value as 'daily' | 'weekly' | 'monthly' | 'quarterly' })}
               options={[
                 { value: 'daily', label: '일간' },
                 { value: 'weekly', label: '주간' },

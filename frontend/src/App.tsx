@@ -59,9 +59,10 @@ const App: React.FC = () => {
       locale={koKR}
       theme={{
         token: {
-          colorPrimary: '#D4AF37',
-          colorBgBase: '#0A0E27',
-          colorTextBase: '#FFFFFF',
+          colorPrimary: '#8AB4F8',
+          colorBgBase: '#202124',
+          colorTextBase: '#E8EAED',
+          borderRadius: 12,
         },
       }}
     >
