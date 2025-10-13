@@ -13,10 +13,11 @@ interface GlassButtonProps {
 }
 
 const PrimaryButton = styled.button`
-  background: linear-gradient(135deg, #D4AF37 0%, #F4E4A6 100%);
-  color: ${theme.colors.backgroundDark};
-  border: none;
-  border-radius: 8px;
+  background: ${theme.colors.liquidGoldGradient};
+  backdrop-filter: blur(15px);
+  color: #FFFFFF;
+  border: 1px solid ${theme.colors.liquidGoldBorder};
+  border-radius: 12px;
   padding: 12px 24px;
   font-weight: 600;
   font-size: 16px;
@@ -25,10 +26,30 @@ const PrimaryButton = styled.button`
   display: flex;
   align-items: center;
   gap: 8px;
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: ${theme.colors.liquidGoldGradient};
+    opacity: 0;
+    transition: opacity ${theme.transitions.spring};
+  }
 
   &:hover:not(:disabled) {
     transform: translateY(-2px);
-    box-shadow: ${theme.shadows.hover};
+    box-shadow: 0 8px 32px rgba(255, 215, 0, 0.3);
+    border-color: ${theme.colors.liquidGoldBorder};
+    color: #FFFFFF;
+    
+    &::before {
+      opacity: 1;
+    }
   }
 
   &:active:not(:disabled) {

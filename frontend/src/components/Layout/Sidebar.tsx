@@ -106,15 +106,15 @@ const NavItem = styled.div<{ $active: boolean; $collapsed: boolean }>`
   gap: ${props => props.$collapsed ? '0' : theme.spacing.md};
   padding: ${props => props.$collapsed ? '8px' : '12px 16px'};
   border-radius: ${props => props.$collapsed ? '12px' : '12px'};
-  color: ${(props: { $active: boolean }) => props.$active ? theme.colors.accentPrimary : theme.colors.textSecondary};
+  color: ${(props: { $active: boolean }) => props.$active ? '#FFFFFF' : theme.colors.textSecondary};
   background: ${(props: { $active: boolean, $collapsed: boolean }) => 
     props.$active 
-      ? (props.$collapsed ? 'rgba(138, 180, 248, 0.2)' : 'rgba(138, 180, 248, 0.1)')
+      ? (props.$collapsed ? theme.colors.liquidGoldGradient : theme.colors.liquidGoldGradient)
       : 'transparent'
   };
   border: ${(props: { $active: boolean, $collapsed: boolean }) => 
     props.$active 
-      ? (props.$collapsed ? '1px solid rgba(138, 180, 248, 0.4)' : '1px solid rgba(138, 180, 248, 0.2)')
+      ? (props.$collapsed ? `1px solid ${theme.colors.liquidGoldBorder}` : `1px solid ${theme.colors.liquidGoldBorder}`)
       : '1px solid transparent'
   };
   cursor: pointer;
@@ -129,13 +129,13 @@ const NavItem = styled.div<{ $active: boolean; $collapsed: boolean }>`
 
   &:hover {
     background: ${props => props.$collapsed 
-      ? 'rgba(138, 180, 248, 0.15)' 
+      ? theme.colors.liquidGoldHover 
       : theme.colors.liquidGlassHover
     };
-    color: ${theme.colors.accentPrimary};
+    color: #FFFFFF;
     transform: ${props => props.$collapsed ? 'scale(1.1)' : 'translateX(4px)'};
     box-shadow: ${props => props.$collapsed 
-      ? '0 4px 12px rgba(138, 180, 248, 0.2)' 
+      ? '0 4px 12px rgba(255, 215, 0, 0.3)' 
       : 'none'
     };
   }
@@ -205,11 +205,11 @@ const CollapseButton = styled.button<{ $collapsed: boolean }>`
   height: ${props => props.$collapsed ? '40px' : '40px'};
   border-radius: 12px;
   background: ${props => props.$collapsed 
-    ? 'rgba(138, 180, 248, 0.1)' 
+    ? theme.colors.liquidGold 
     : theme.colors.liquidGlass
   };
   border: ${props => props.$collapsed 
-    ? '1px solid rgba(138, 180, 248, 0.2)' 
+    ? `1px solid ${theme.colors.liquidGoldBorder}` 
     : `1px solid ${theme.colors.border}`
   };
   color: ${props => props.$collapsed ? theme.colors.accentPrimary : theme.colors.textSecondary};

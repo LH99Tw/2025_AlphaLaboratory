@@ -48,10 +48,18 @@ const FlowContainer = styled.div`
     border: 1px solid ${theme.colors.liquidGlassBorder};
     border-radius: 16px;
     padding: ${theme.spacing.md};
+    backdrop-filter: blur(10px);
     color: ${theme.colors.textPrimary};
-    backdrop-filter: blur(20px);
     font-family: ${theme.typography.fontFamily.primary};
     min-width: 200px;
+    
+    /* Alpha 노드들에 리퀴드 글래스 금색 적용 */
+    &[data-id="3"], &[data-id="4"] {
+      background: ${theme.colors.liquidGoldGradient};
+      border: 1px solid ${theme.colors.liquidGoldBorder};
+      backdrop-filter: blur(15px);
+      box-shadow: 0 4px 20px rgba(212, 175, 55, 0.1);
+    }
     
     &.selected {
       border-color: ${theme.colors.accentPrimary};
@@ -98,12 +106,13 @@ const StatusBadge = styled.div<{ $running: boolean }>`
   align-items: center;
   gap: ${theme.spacing.sm};
   padding: ${theme.spacing.sm} ${theme.spacing.md};
-  background: ${props => props.$running ? 'rgba(138, 180, 248, 0.1)' : 'rgba(95, 99, 104, 0.1)'};
-  border: 1px solid ${props => props.$running ? theme.colors.accentPrimary : theme.colors.border};
+  background: ${props => props.$running ? theme.colors.liquidGold : 'rgba(95, 99, 104, 0.1)'};
+  border: 1px solid ${props => props.$running ? theme.colors.liquidGoldBorder : theme.colors.border};
   border-radius: 12px;
-  color: ${props => props.$running ? theme.colors.accentPrimary : theme.colors.textSecondary};
+  color: ${props => props.$running ? theme.colors.textPrimary : theme.colors.textSecondary};
   font-weight: 600;
   font-size: ${theme.typography.fontSize.caption};
+  backdrop-filter: blur(10px);
 `;
 
 const NodeLabel = styled.div`

@@ -10,7 +10,13 @@ const BackgroundWrapper = styled.div`
   height: 100%;
   z-index: -1;
   overflow: hidden;
-  background: #0A0E27;
+  background: radial-gradient(
+    ellipse at center top,
+    rgba(255, 215, 0, 0.08) 0%,
+    rgba(255, 165, 0, 0.05) 30%,
+    rgba(255, 140, 0, 0.03) 60%,
+    #0A0E27 100%
+  );
 `;
 
 const LiquidBlob = styled.div<{ $delay?: number; $size?: number }>`

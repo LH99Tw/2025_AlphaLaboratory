@@ -34,6 +34,14 @@ const MetricCard = styled(GlassCard)`
   display: flex;
   flex-direction: column;
   gap: ${theme.spacing.md};
+  
+  /* 특정 메트릭 카드에 리퀴드 글래스 금색 적용 */
+  &:nth-child(2), &:nth-child(4) {
+    background: ${theme.colors.liquidGoldGradient};
+    border: 1px solid ${theme.colors.liquidGoldBorder};
+    backdrop-filter: blur(15px);
+    box-shadow: 0 4px 20px rgba(212, 175, 55, 0.1);
+  }
 `;
 
 const MetricHeader = styled.div`
