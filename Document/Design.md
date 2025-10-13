@@ -24,10 +24,12 @@
 - **Accent Primary**: `#FFD700` - 순금색 (메인 액센트)
 - **Accent Gold**: `#FFA500` - 오렌지 골드
 - **Accent Gradient**: `linear-gradient(135deg, #FFD700 0%, #FFA500 100%)`
-- **Liquid Gold**: `rgba(255, 215, 0, 0.15)` - 반투명 금색
-- **Liquid Gold Border**: `rgba(255, 165, 0, 0.4)` - 금색 테두리
-- **Liquid Gold Hover**: `rgba(255, 215, 0, 0.25)` - 금색 호버
-- **Liquid Gold Gradient**: `linear-gradient(135deg, rgba(255, 215, 0, 0.2) 0%, rgba(255, 165, 0, 0.1) 100%)`
+- **Liquid Gold**: `rgba(255, 215, 0, 0.12)` - 부드러운 반투명 금색
+- **Liquid Gold Border**: `rgba(255, 165, 0, 0.3)` - 금색 테두리
+- **Liquid Gold Hover**: `rgba(255, 215, 0, 0.2)` - 금색 호버
+- **Liquid Gold Gradient**: `linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(255, 165, 0, 0.08) 50%, rgba(255, 140, 0, 0.05) 100%)` - 3단계 부드러운 그라데이션
+- **Glowing Text**: `linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%)` - 빛나는 텍스트 효과
+- **Glowing Text Hover**: `linear-gradient(135deg, #FFF8DC 0%, #FFD700 50%, #FFA500 100%)` - 호버 시 더 밝은 빛나는 효과
 
 ### 🎯 상태 컬러 (통일된 색상 팔레트)
 - **Success**: `#10B981` - 성공/수익
@@ -48,6 +50,12 @@
 - **Body**: `1rem` (16px) - 본문 텍스트
 - **Caption**: `0.875rem` (14px) - 설명 텍스트
 - **Code**: `0.875rem` (14px) - 코드/데이터
+
+### 🎨 텍스트 색상 가이드라인
+- **일반 텍스트**: `#9AA0A6` - 보조 텍스트 색상 사용
+- **선택된 텍스트**: `#FFFFFF` - 흰색으로 명확한 대비
+- **호버 텍스트**: `#FFFFFF` - 흰색으로 일관성 유지
+- **액센트 텍스트**: 금색 그라데이션 대신 흰색 사용 (가독성 우선)
 
 ## [애니메이션 시스템]
 ### ✨ 현업 수준의 마이크로 인터랙션
@@ -141,19 +149,20 @@ box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 ```
 
 ### 🔘 버튼 컴포넌트
-**Primary Button (따뜻한 금색)**
+**Primary Button (리퀴드 글래스 금색)**
 ```css
-background: linear-gradient(135deg, rgba(255, 215, 0, 0.2) 0%, rgba(255, 165, 0, 0.1) 100%);
-backdrop-filter: blur(10px);
-color: #E8EAED;
-border: 1px solid rgba(255, 165, 0, 0.4);
+background: linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(255, 165, 0, 0.08) 50%, rgba(255, 140, 0, 0.05) 100%);
+backdrop-filter: blur(15px);
+color: #FFFFFF;  /* 흰색 텍스트 */
+border: 1px solid rgba(255, 165, 0, 0.3);
 border-radius: 12px;
 font-weight: 600;
 transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 
 /* Hover */
 transform: translateY(-2px);
-box-shadow: 0 8px 32px rgba(255, 215, 0, 0.2);
+box-shadow: 0 8px 32px rgba(255, 215, 0, 0.3);
+color: #FFFFFF;  /* 호버 시에도 흰색 유지 */
 ```
 
 **Secondary Button (Glass)**
@@ -226,7 +235,7 @@ chartColors = {
 }
 ```
 
-### 🎯 네비게이션 메뉴
+### 🎯 네비게이션 메뉴 (업데이트됨)
 ```css
 .nav-menu {
   background: rgba(20, 27, 61, 0.8);
@@ -235,21 +244,21 @@ chartColors = {
 }
 
 .nav-item {
-  color: #B4B4C5;
-  transition: all 0.3s ease;
+  color: #9AA0A6;  /* 일반 상태: 보조 텍스트 색상 */
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   border-radius: 8px;
   margin: 4px 8px;
 }
 
 .nav-item:hover {
-  background: rgba(212, 175, 55, 0.1);
-  color: #D4AF37;
+  background: rgba(255, 255, 255, 0.06);  /* Liquid Glass Hover */
+  color: #FFFFFF;  /* 흰색 텍스트 */
 }
 
 .nav-item.active {
-  background: rgba(212, 175, 55, 0.15);
-  color: #D4AF37;
-  border-left: 3px solid #D4AF37;
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(255, 165, 0, 0.08) 50%, rgba(255, 140, 0, 0.05) 100%);  /* Liquid Gold Gradient */
+  color: #FFFFFF;  /* 흰색 텍스트 */
+  border: 1px solid rgba(255, 165, 0, 0.3);  /* Liquid Gold Border */
 }
 ```
 
