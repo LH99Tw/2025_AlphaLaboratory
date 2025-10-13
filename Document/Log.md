@@ -18,3 +18,11 @@
     - 미구현 기능용 빈 페이지 3개 생성 (Simulation.tsx, AlphaPool.tsx, AlphaIncubator.tsx)
     - 기존 GAEvolution.tsx와 AIAgent.tsx를 새로운 구조로 업데이트
     - App.tsx 라우팅 구조 업데이트 및 불필요한 파일 정리
+
+[4](20250114):디자인 시스템 가이드라인 구축
+    - Design.md 파일을 체계적인 디자인 시스템 가이드로 확장
+    - 컬러 팔레트, 타이포그래피, 애니메이션 시스템 정의
+    - Glass Morphism과 Liquid Flow 디자인 컨셉 구체화
+    - 접근성(WCAG 2.1 AA) 및 성능 최적화 가이드라인 추가
+    - LAW.md에 디자인 시스템 규칙 추가 (6-1~6-5)
+    - 레퍼런스 이미지 및 컴포넌트 라이브러리 정리
