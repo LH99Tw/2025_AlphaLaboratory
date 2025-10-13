@@ -1623,6 +1623,134 @@ def get_portfolio_performance():
         logger.error(f"포트폴리오 성과 분석 오류: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/user-alpha/save', methods=['POST'])
+def save_user_alpha():
+    """사용자 알파 저장"""
+    try:
+        if 'username' not in session:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        data = request.get_json()
+        username = session['username']
+        alphas = data.get('alphas', [])
+        
+        if not alphas:
+            return jsonify({'error': '저장할 알파가 없습니다'}), 400
+        
+        # UserAlpha 파일 경로
+        user_alpha_file = os.path.join(PROJECT_ROOT, 'database', 'userdata', 'user_alphas.json')
+        
+        # 파일 로드 또는 생성
+        if os.path.exists(user_alpha_file):
+            with open(user_alpha_file, 'r', encoding='utf-8') as f:
+                user_alphas_data = json.load(f)
+        else:
+            user_alphas_data = {'users': []}
+        
+        # 사용자 찾기 또는 생성
+        user_entry = next((u for u in user_alphas_data['users'] if u['username'] == username), None)
+        if not user_entry:
+            user_entry = {'username': username, 'alphas': []}
+            user_alphas_data['users'].append(user_entry)
+        
+        # 알파 추가 (고유 ID 생성)
+        for alpha in alphas:
+            alpha['id'] = f"alpha_{int(time.time())}_{secrets.token_hex(4)}"
+            alpha['created_at'] = datetime.now().isoformat()
+            user_entry['alphas'].append(alpha)
+        
+        # 파일 저장
+        os.makedirs(os.path.dirname(user_alpha_file), exist_ok=True)
+        with open(user_alpha_file, 'w', encoding='utf-8') as f:
+            json.dump(user_alphas_data, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"사용자 {username}의 {len(alphas)}개 알파 저장 완료")
+        
+        return jsonify({
+            'success': True,
+            'message': f'{len(alphas)}개의 알파가 저장되었습니다',
+            'saved_alphas': alphas
+        })
+        
+    except Exception as e:
+        logger.error(f"알파 저장 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user-alpha/list', methods=['GET'])
+def get_user_alphas():
+    """사용자 알파 목록 조회"""
+    try:
+        if 'username' not in session:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        username = session['username']
+        user_alpha_file = os.path.join(PROJECT_ROOT, 'database', 'userdata', 'user_alphas.json')
+        
+        if not os.path.exists(user_alpha_file):
+            return jsonify({
+                'success': True,
+                'alphas': [],
+                'total_count': 0
+            })
+        
+        with open(user_alpha_file, 'r', encoding='utf-8') as f:
+            user_alphas_data = json.load(f)
+        
+        user_entry = next((u for u in user_alphas_data['users'] if u['username'] == username), None)
+        alphas = user_entry['alphas'] if user_entry else []
+        
+        return jsonify({
+            'success': True,
+            'alphas': alphas,
+            'total_count': len(alphas)
+        })
+        
+    except Exception as e:
+        logger.error(f"알파 목록 조회 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user-alpha/delete/<alpha_id>', methods=['DELETE'])
+def delete_user_alpha(alpha_id):
+    """사용자 알파 삭제"""
+    try:
+        if 'username' not in session:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        username = session['username']
+        user_alpha_file = os.path.join(PROJECT_ROOT, 'database', 'userdata', 'user_alphas.json')
+        
+        if not os.path.exists(user_alpha_file):
+            return jsonify({'error': '알파 파일을 찾을 수 없습니다'}), 404
+        
+        with open(user_alpha_file, 'r', encoding='utf-8') as f:
+            user_alphas_data = json.load(f)
+        
+        user_entry = next((u for u in user_alphas_data['users'] if u['username'] == username), None)
+        if not user_entry:
+            return jsonify({'error': '사용자를 찾을 수 없습니다'}), 404
+        
+        # 알파 삭제
+        original_count = len(user_entry['alphas'])
+        user_entry['alphas'] = [a for a in user_entry['alphas'] if a['id'] != alpha_id]
+        
+        if len(user_entry['alphas']) == original_count:
+            return jsonify({'error': '알파를 찾을 수 없습니다'}), 404
+        
+        # 파일 저장
+        with open(user_alpha_file, 'w', encoding='utf-8') as f:
+            json.dump(user_alphas_data, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"사용자 {username}의 알파 {alpha_id} 삭제 완료")
+        
+        return jsonify({
+            'success': True,
+            'message': '알파가 삭제되었습니다'
+        })
+        
+    except Exception as e:
+        logger.error(f"알파 삭제 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({'error': '요청한 엔드포인트를 찾을 수 없습니다'}), 404

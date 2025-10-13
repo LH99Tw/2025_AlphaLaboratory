@@ -189,3 +189,93 @@
     - **색상 팔레트**: 흰색/검은색/회색 계열로 완전 통일
     - **브랜드 일관성**: 모든 화면에서 "Smart Analytics" 사용
     - **현대적 디자인**: 깔끔하고 세련된 UI/UX
+
+---
+
+[11](20250115):알파 풀 노드 시스템 구현 (페이지 이름 수정)
+    ### 노드별 상세 설정 모달
+    - **NodeConfigModal 컴포넌트**: 5가지 노드 타입별 설정 UI
+    - **데이터 소스**: S&P 500 선택, 날짜 범위 설정
+    - **백테스트 조건**: 리밸런싱 주기, 거래비용, Quantile 설정
+    - **GA 엔진**: 개체수, 세대, 최종 생존 수 파라미터 입력
+    - **진화 과정**: 진행률 Progress Bar, 실시간 상태 표시
+    - **최종 결과**: 생성된 알파 요약 정보, 상위 3개 알파 미리보기
+
+    ### GA 실행 워크플로우
+    - **GA 실행 버튼**: 조건 검증 후 백엔드 API 호출
+    - **상태 폴링 시스템**: 1초마다 GA 진행 상태 확인
+    - **실시간 노드 업데이트**: 각 단계별 상태(대기/실행/완료/실패) 표시
+    - **엣지 동적 스타일**: 완료된 노드 간 링크 회색 → 흰색 변경
+    - **애니메이션**: 실행 중인 단계 엣지 animated 효과
+
+    ### 최종 알파 리스트 관리
+    - **AlphaListPanel 컴포넌트**: 생성된 알파 목록 표시
+    - **체크박스**: 저장할 알파 선택/전체 선택 기능
+    - **인라인 편집**: 알파 이름 클릭하여 수정 가능
+    - **알파 정보**: 이름, 수식, 적합도(fitness) 표시
+    - **저장 버튼**: 선택한 알파를 UserAlpha.json에 저장
+
+    ### UserAlpha 백엔드 API
+    - **POST /api/user-alpha/save**: 사용자별 알파 저장
+      - 세션 기반 사용자 인증
+      - 고유 ID 자동 생성
+      - database/userdata/user_alphas.json 파일 관리
+    - **GET /api/user-alpha/list**: 내 알파 목록 조회
+    - **DELETE /api/user-alpha/delete/<alpha_id>**: 알파 삭제
+
+    ### AlphaPool 페이지 완전 재구성
+    - **5개 노드 구조**: 데이터 → 백테스트 → GA → 진화 → 결과
+    - **노드 더블클릭**: 각 노드별 설정 모달 열기
+    - **시각적 피드백**: 완료된 노드 금색 그라데이션 강조
+    - **전체 워크플로우**: 데이터 설정 → GA 실행 → 알파 저장 전체 연동
+    - **레이아웃 개선**: 상단 타이틀 + GA 실행 버튼, 중앙 노드 그래프, 하단 알파 리스트
+    
+    ### 페이지 이름 변경
+    - **AlphaPool** (기존 AI 채팅) → **AlphaIncubator** (알파 부화장)
+    - **AlphaIncubator** (새 노드 시스템) → **AlphaPool** (알파 풀)
+    
+    ### AlphaPool 노드 시스템 리팩토링
+    - **커스텀 노드 제거**: CustomNode 컴포넌트 삭제, ReactFlow 기본 노드 사용
+    - **노드 타입 간소화**: `type: 'custom'` → `type: 'input'` / `type: 'output'` 또는 기본
+    - **엣지 스타일 정리**: 
+      - 애니메이션 조건 단순화 (실행 중일 때만)
+      - 완료 시 금색 점선 엣지로 변경
+      - 불필요한 dash 애니메이션 제거
+    - **이벤트 핸들러 단순화**: 
+      - 커스텀 노드의 onDoubleClick 제거
+      - ReactFlow의 onNodeDoubleClick만 사용
+    - **불필요한 핸들 제거**: sourceHandle, targetHandle 파라미터 제거
+    - **useEffect 의존성 최적화**: nodes, edges를 의존성 배열에서 제거
+    
+    ### 완료 엣지 시각 효과 추가
+    - **금색 점선**: 설정 완료된 노드 간 링크를 금색 점선으로 표시
+    - **흐르는 애니메이션**: `@keyframes dashFlow`로 점선이 흐르는 효과
+    - **빛나는 효과**: `drop-shadow`로 금색 글로우 효과
+    - **인라인 스타일 + CSS 클래스**: 두 가지 방식으로 스타일 적용
+      - `style` prop: `stroke`, `strokeWidth`, `strokeDasharray`, `filter`
+      - CSS 클래스: `.react-flow__edge.completed` 셀렉터로 애니메이션
+
+    ### 데이터 흐름 완성
+    ```
+    사용자 노드 설정 → GA 파라미터 입력 → "GA 실행" 클릭
+      ↓
+    백엔드 /api/ga/run 호출 (개체수, 세대 전달)
+      ↓
+    task_id 받아 1초마다 /api/ga/status/<task_id> 폴링
+      ↓
+    진행률 노드에 실시간 반영 (0% → 100%)
+      ↓
+    완료 시 결과 노드에 알파 리스트 표시
+      ↓
+    하단 AlphaListPanel에 체크박스 + 이름 편집 UI
+      ↓
+    "저장" 버튼 클릭 → /api/user-alpha/save 호출
+      ↓
+    UserAlpha.json에 유저별로 저장 완료
+    ```
+
+    ### 기술 스택
+    - **프론트엔드**: ReactFlow, Ant Design (Modal, Progress, DatePicker 등)
+    - **상태 관리**: useState, useEffect, useCallback
+    - **스타일링**: styled-components, Apple-style UI 원칙 적용
+    - **백엔드**: Flask, JSON 파일 기반 저장소

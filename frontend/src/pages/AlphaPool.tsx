@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import styled from 'styled-components';
 import ReactFlow, {
   Node,
@@ -15,13 +15,22 @@ import 'reactflow/dist/style.css';
 import { GlassCard } from '../components/common/GlassCard';
 import { GlassButton } from '../components/common/GlassButton';
 import { theme } from '../styles/theme';
-import { PlayCircleOutlined, PauseCircleOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined } from '@ant-design/icons';
+import { NodeConfigModal } from '../components/AlphaFactory/NodeConfigModal';
+import { AlphaListPanel } from '../components/AlphaFactory/AlphaListPanel';
+import { message as antdMessage } from 'antd';
 
 const Container = styled.div`
   display: flex;
   flex-direction: column;
   gap: ${theme.spacing.xl};
   height: calc(100vh - 200px);
+`;
+
+const TopSection = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 `;
 
 const Title = styled.h1`
@@ -31,6 +40,19 @@ const Title = styled.h1`
   font-weight: 700;
 `;
 
+const Description = styled.p`
+  color: ${theme.colors.textSecondary};
+  margin: ${theme.spacing.sm} 0 0 0;
+  font-size: ${theme.typography.fontSize.body};
+`;
+
+const FlowSection = styled.div`
+  flex: 2;
+  display: flex;
+  flex-direction: column;
+  gap: ${theme.spacing.md};
+`;
+
 const FlowContainer = styled.div`
   flex: 1;
   background: ${theme.colors.backgroundSecondary};
@@ -38,6 +60,7 @@ const FlowContainer = styled.div`
   border-radius: 20px;
   overflow: hidden;
   position: relative;
+  min-height: 400px;
   
   .react-flow {
     background: ${theme.colors.backgroundDark};
@@ -48,28 +71,41 @@ const FlowContainer = styled.div`
     border: 1px solid ${theme.colors.liquidGlassBorder};
     border-radius: 16px;
     padding: ${theme.spacing.md};
-    backdrop-filter: blur(10px);
     color: ${theme.colors.textPrimary};
+    backdrop-filter: blur(20px);
     font-family: ${theme.typography.fontFamily.primary};
-    min-width: 200px;
-    
-    /* Alpha 노드들에 리퀴드 글래스 금색 적용 */
-    &[data-id="3"], &[data-id="4"] {
-      background: ${theme.colors.liquidGoldGradient};
-      border: 1px solid ${theme.colors.liquidGoldBorder};
-      backdrop-filter: blur(15px);
-      box-shadow: 0 4px 20px rgba(212, 175, 55, 0.1);
-    }
+    min-width: 160px;
+    cursor: pointer;
     
     &.selected {
       border-color: ${theme.colors.accentPrimary};
       box-shadow: ${theme.shadows.glow};
     }
+    
+    &.completed {
+      border-color: ${theme.colors.accentPrimary};
+      background: ${theme.colors.liquidGoldGradient};
+    }
   }
   
   .react-flow__edge-path {
-    stroke: ${theme.colors.accentPrimary};
+    stroke: ${theme.colors.border};
     stroke-width: 2;
+    transition: all ${theme.transitions.spring};
+  }
+  
+  .react-flow__edge.completed .react-flow__edge-path {
+    stroke: ${theme.colors.accentGold} !important;
+    stroke-width: 3 !important;
+    stroke-dasharray: 10 5 !important;
+    animation: dashFlow 1.5s linear infinite;
+    filter: drop-shadow(0 0 8px ${theme.colors.accentGold});
+  }
+  
+  @keyframes dashFlow {
+    to {
+      stroke-dashoffset: -15;
+    }
   }
   
   .react-flow__handle {
@@ -95,162 +131,409 @@ const FlowContainer = styled.div`
   }
 `;
 
-const ControlPanel = styled(GlassCard)`
-  display: flex;
-  gap: ${theme.spacing.md};
-  align-items: center;
-`;
-
-const StatusBadge = styled.div<{ $running: boolean }>`
-  display: flex;
-  align-items: center;
-  gap: ${theme.spacing.sm};
-  padding: ${theme.spacing.sm} ${theme.spacing.md};
-  background: ${props => props.$running ? theme.colors.liquidGold : 'rgba(95, 99, 104, 0.1)'};
-  border: 1px solid ${props => props.$running ? theme.colors.liquidGoldBorder : theme.colors.border};
-  border-radius: 12px;
-  color: ${props => props.$running ? theme.colors.textPrimary : theme.colors.textSecondary};
-  font-weight: 600;
-  font-size: ${theme.typography.fontSize.caption};
-  backdrop-filter: blur(10px);
-`;
-
 const NodeLabel = styled.div`
   font-weight: 600;
-  margin-bottom: ${theme.spacing.sm};
+  margin-bottom: ${theme.spacing.xs};
   color: ${theme.colors.textPrimary};
+  font-size: ${theme.typography.fontSize.body};
+  text-align: center;
 `;
 
-const NodeData = styled.div`
+const NodeStatus = styled.div<{ $status?: 'pending' | 'running' | 'completed' | 'failed' }>`
   font-size: ${theme.typography.fontSize.caption};
-  color: ${theme.colors.textSecondary};
-  margin-top: ${theme.spacing.sm};
+  color: ${props => {
+    switch (props.$status) {
+      case 'completed': return theme.colors.success;
+      case 'running': return theme.colors.accentPrimary;
+      case 'failed': return theme.colors.error;
+      default: return theme.colors.textSecondary;
+    }
+  }};
+  text-align: center;
 `;
 
-const initialNodes: Node[] = [
-  {
-    id: '1',
-    type: 'input',
-    data: { 
-      label: (
-        <>
-          <NodeLabel>📊 데이터 소스</NodeLabel>
-          <NodeData>S&P 500 과거 데이터</NodeData>
-        </>
-      )
-    },
-    position: { x: 50, y: 50 },
-  },
-  {
-    id: '2',
-    data: { 
-      label: (
-        <>
-          <NodeLabel>🧬 GA 엔진</NodeLabel>
-          <NodeData>개체수: 50 | 세대: 1/10</NodeData>
-        </>
-      )
-    },
-    position: { x: 350, y: 50 },
-  },
-  {
-    id: '3',
-    data: { 
-      label: (
-        <>
-          <NodeLabel>⚡ Alpha 001</NodeLabel>
-          <NodeData>적합도: 0.85 | 순위: 1</NodeData>
-        </>
-      )
-    },
-    position: { x: 350, y: 200 },
-  },
-  {
-    id: '4',
-    data: { 
-      label: (
-        <>
-          <NodeLabel>⚡ Alpha 002</NodeLabel>
-          <NodeData>적합도: 0.72 | 순위: 2</NodeData>
-        </>
-      )
-    },
-    position: { x: 350, y: 350 },
-  },
-  {
-    id: '5',
-    type: 'output',
-    data: { 
-      label: (
-        <>
-          <NodeLabel>🎯 최고 알파</NodeLabel>
-          <NodeData>거래용으로 선택됨</NodeData>
-        </>
-      )
-    },
-    position: { x: 650, y: 200 },
-  },
-];
+interface NodeData {
+  completed: boolean;
+  status?: 'pending' | 'running' | 'completed' | 'failed';
+  config?: any;
+}
 
-const initialEdges: Edge[] = [
-  { id: 'e1-2', source: '1', target: '2', animated: true },
-  { id: 'e2-3', source: '2', target: '3', animated: true },
-  { id: 'e2-4', source: '2', target: '4', animated: true },
-  { id: 'e3-5', source: '3', target: '5', animated: true },
-];
+const createNodeContent = (label: string, status?: string) => (
+  <div>
+    <NodeLabel>{label}</NodeLabel>
+    {status && <NodeStatus $status={status as any}>{
+      status === 'pending' ? '대기 중' :
+      status === 'running' ? '실행 중...' :
+      status === 'completed' ? '완료' : '실패'
+    }</NodeStatus>}
+  </div>
+);
 
 export const AlphaPool: React.FC = () => {
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
+  // 노드 상태 관리
+  const [nodeStates, setNodeStates] = useState<Record<string, NodeData>>({
+    'data-node': { completed: false, status: 'pending', config: { dataSource: 'sp500' } },
+    'backtest-node': { completed: false, status: 'pending', config: {} },
+    'ga-node': { completed: false, status: 'pending', config: {} },
+    'evolution-node': { completed: false, status: 'pending', config: { progress: 0 } },
+    'results-node': { completed: false, status: 'pending', config: {} },
+  });
+
+  // 초기 노드 설정
+  const initialNodes: Node[] = [
+    {
+      id: 'data-node',
+      type: 'input',
+      data: { label: createNodeContent('📊 데이터 소스', nodeStates['data-node'].status) },
+      position: { x: 50, y: 200 },
+      className: nodeStates['data-node'].completed ? 'completed' : '',
+    },
+    {
+      id: 'backtest-node',
+      data: { label: createNodeContent('⚙️ 백테스트 조건', nodeStates['backtest-node'].status) },
+      position: { x: 300, y: 200 },
+      className: nodeStates['backtest-node'].completed ? 'completed' : '',
+    },
+    {
+      id: 'ga-node',
+      data: { label: createNodeContent('🧬 GA 엔진', nodeStates['ga-node'].status) },
+      position: { x: 550, y: 200 },
+      className: nodeStates['ga-node'].completed ? 'completed' : '',
+    },
+    {
+      id: 'evolution-node',
+      data: { label: createNodeContent('🔄 진화 과정', nodeStates['evolution-node'].status) },
+      position: { x: 800, y: 200 },
+      className: nodeStates['evolution-node'].completed ? 'completed' : '',
+    },
+    {
+      id: 'results-node',
+      type: 'output',
+      data: { label: createNodeContent('✅ 최종 결과', nodeStates['results-node'].status) },
+      position: { x: 1050, y: 200 },
+      className: nodeStates['results-node'].completed ? 'completed' : '',
+    },
+  ];
+
+  const initialEdges: Edge[] = [
+    {
+      id: 'e1-2',
+      source: 'data-node',
+      target: 'backtest-node',
+      animated: false,
+      className: nodeStates['data-node'].completed ? 'completed' : '',
+    },
+    {
+      id: 'e2-3',
+      source: 'backtest-node',
+      target: 'ga-node',
+      animated: false,
+      className: nodeStates['backtest-node'].completed ? 'completed' : '',
+    },
+    {
+      id: 'e3-4',
+      source: 'ga-node',
+      target: 'evolution-node',
+      animated: false,
+      className: nodeStates['ga-node'].completed ? 'completed' : '',
+    },
+    {
+      id: 'e4-5',
+      source: 'evolution-node',
+      target: 'results-node',
+      animated: false,
+      className: nodeStates['evolution-node'].completed ? 'completed' : '',
+    },
+  ];
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const [isRunning, setIsRunning] = useState(false);
+
+  // 모달 상태
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNodeType, setSelectedNodeType] = useState<'data' | 'backtest' | 'ga' | 'evolution' | 'results'>('data');
+
+  // GA 관련 상태
+  const [gaTaskId, setGaTaskId] = useState<string | null>(null);
+  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
+
+  // 최종 알파 리스트
+  const [alphaList, setAlphaList] = useState<any[]>([]);
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge(params, eds)),
     [setEdges]
   );
 
+  // 노드 더블클릭 이벤트
+  const handleNodeDoubleClick = useCallback((_event: React.MouseEvent, node: Node) => {
+    const nodeTypeMap: Record<string, 'data' | 'backtest' | 'ga' | 'evolution' | 'results'> = {
+      'data-node': 'data',
+      'backtest-node': 'backtest',
+      'ga-node': 'ga',
+      'evolution-node': 'evolution',
+      'results-node': 'results',
+    };
+
+    setSelectedNodeId(node.id);
+    setSelectedNodeType(nodeTypeMap[node.id]);
+    setModalVisible(true);
+  }, []);
+
+  // 노드 설정 저장
+  const handleSaveNodeConfig = useCallback((data: any) => {
+    if (!selectedNodeId) return;
+
+    setNodeStates(prev => ({
+      ...prev,
+      [selectedNodeId]: {
+        ...prev[selectedNodeId],
+        completed: true,
+        status: 'completed',
+        config: data,
+      },
+    }));
+
+    antdMessage.success('설정이 저장되었습니다');
+  }, [selectedNodeId]);
+
+  // GA 실행 함수
+  const handleRunGA = useCallback(async () => {
+    if (!nodeStates['ga-node'].completed) {
+      antdMessage.warning('GA 엔진 설정을 먼저 완료해주세요');
+      return;
+    }
+
+    const gaConfig = nodeStates['ga-node'].config;
+
+    try {
+      setNodeStates(prev => ({
+        ...prev,
+        'ga-node': { ...prev['ga-node'], status: 'running' },
+        'evolution-node': { ...prev['evolution-node'], status: 'running' },
+      }));
+
+      const response = await fetch('http://localhost:5002/api/ga/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          population_size: gaConfig.populationSize || 50,
+          generations: gaConfig.generations || 20,
+          max_depth: gaConfig.maxDepth || 10,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.task_id) {
+        setGaTaskId(data.task_id);
+        antdMessage.success('GA가 시작되었습니다!');
+        startPolling(data.task_id);
+      } else {
+        throw new Error('GA 시작 실패');
+      }
+    } catch (error) {
+      console.error('GA 실행 오류:', error);
+      antdMessage.error('GA 실행 중 오류가 발생했습니다');
+      setNodeStates(prev => ({
+        ...prev,
+        'ga-node': { ...prev['ga-node'], status: 'failed' },
+        'evolution-node': { ...prev['evolution-node'], status: 'failed' },
+      }));
+    }
+  }, [nodeStates]);
+
+  // GA 상태 폴링
+  const startPolling = useCallback((taskId: string) => {
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch(`http://localhost:5002/api/ga/status/${taskId}`, {
+          credentials: 'include',
+        });
+        const data = await response.json();
+
+        if (data.status === 'completed') {
+          clearInterval(interval);
+          setPollingInterval(null);
+
+          setNodeStates(prev => ({
+            ...prev,
+            'evolution-node': {
+              ...prev['evolution-node'],
+              status: 'completed',
+              completed: true,
+              config: { ...data, progress: 100 },
+            },
+            'results-node': {
+              ...prev['results-node'],
+              status: 'completed',
+              completed: true,
+              config: { alphas: data.results || [] },
+            },
+          }));
+
+          // 알파 리스트 생성
+          const formattedAlphas = (data.results || []).map((alpha: any, index: number) => ({
+            id: `alpha_${Date.now()}_${index}`,
+            name: `알파 #${index + 1}`,
+            expression: alpha.expression,
+            fitness: alpha.fitness,
+            selected: false,
+          }));
+
+          setAlphaList(formattedAlphas);
+          antdMessage.success('GA가 완료되었습니다!');
+        } else if (data.status === 'failed') {
+          clearInterval(interval);
+          setPollingInterval(null);
+
+          setNodeStates(prev => ({
+            ...prev,
+            'evolution-node': { ...prev['evolution-node'], status: 'failed' },
+          }));
+
+          antdMessage.error('GA 실행이 실패했습니다');
+        } else {
+          // 진행 중
+          setNodeStates(prev => ({
+            ...prev,
+            'evolution-node': {
+              ...prev['evolution-node'],
+              config: { ...data, progress: data.progress || 0 },
+            },
+          }));
+        }
+      } catch (error) {
+        console.error('GA 상태 확인 오류:', error);
+      }
+    }, 1000);
+
+    setPollingInterval(interval);
+  }, []);
+
+  // 알파 저장
+  const handleSaveAlphas = useCallback(async (selectedAlphas: any[]) => {
+    try {
+      const response = await fetch('http://localhost:5002/api/user-alpha/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ alphas: selectedAlphas }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        antdMessage.success(`${selectedAlphas.length}개의 알파가 저장되었습니다!`);
+      } else {
+        throw new Error(data.error || '저장 실패');
+      }
+    } catch (error: any) {
+      console.error('알파 저장 오류:', error);
+      antdMessage.error(error.message || '알파 저장 중 오류가 발생했습니다');
+    }
+  }, []);
+
+  // 노드 및 엣지 업데이트
+  useEffect(() => {
+    const updatedNodes = nodes.map(node => ({
+      ...node,
+      data: {
+        label: createNodeContent(
+          node.id === 'data-node' ? '📊 데이터 소스' :
+          node.id === 'backtest-node' ? '⚙️ 백테스트 조건' :
+          node.id === 'ga-node' ? '🧬 GA 엔진' :
+          node.id === 'evolution-node' ? '🔄 진화 과정' : '✅ 최종 결과',
+          nodeStates[node.id]?.status
+        ),
+      },
+      className: nodeStates[node.id]?.completed ? 'completed' : '',
+    }));
+
+    const updatedEdges = edges.map(edge => {
+      const isCompleted = nodeStates[edge.source]?.completed;
+      const isRunning = nodeStates[edge.source]?.status === 'running';
+      
+      return {
+        ...edge,
+        className: isCompleted ? 'completed' : '',
+        animated: isRunning,
+        style: isCompleted ? {
+          stroke: theme.colors.accentGold,
+          strokeWidth: 3,
+          strokeDasharray: '10, 5',
+          filter: `drop-shadow(0 0 8px ${theme.colors.accentGold})`,
+        } : undefined,
+      };
+    });
+
+    setNodes(updatedNodes);
+    setEdges(updatedEdges);
+  }, [nodeStates]);
+
+  // 컴포넌트 언마운트 시 폴링 중지
+  useEffect(() => {
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+    };
+  }, [pollingInterval]);
+
   return (
     <Container>
-      <div>
-        <Title>알파 풀 - GA 진화</Title>
-        <p style={{ color: theme.colors.textSecondary, marginTop: theme.spacing.sm }}>
-          유전 알고리즘 기반 알파 팩터 진화
-        </p>
-      </div>
+      <TopSection>
+        <div>
+          <Title>알파 풀</Title>
+          <Description>
+            유전 알고리즘 기반 알파 팩터 생성 시스템
+          </Description>
+        </div>
 
-      <ControlPanel>
-        <StatusBadge $running={isRunning}>
-          <div style={{ 
-            width: '8px', 
-            height: '8px', 
-            borderRadius: '50%', 
-            background: isRunning ? theme.colors.accentPrimary : theme.colors.textSecondary
-          }} />
-          {isRunning ? '실행 중' : '중지됨'}
-        </StatusBadge>
-        
         <GlassButton
           variant="primary"
-          onClick={() => setIsRunning(!isRunning)}
-          icon={isRunning ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
+          onClick={handleRunGA}
+          disabled={!nodeStates['ga-node'].completed || nodeStates['evolution-node'].status === 'running'}
+          icon={<PlayCircleOutlined />}
         >
-          {isRunning ? '일시정지' : '진화 시작'}
+          {nodeStates['evolution-node'].status === 'running' ? 'GA 실행 중...' : 'GA 실행'}
         </GlassButton>
-      </ControlPanel>
+      </TopSection>
 
-      <FlowContainer>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          fitView
-        >
-          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color={theme.colors.border} />
-          <Controls />
-        </ReactFlow>
-      </FlowContainer>
+      <FlowSection>
+        <FlowContainer>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeDoubleClick={handleNodeDoubleClick}
+            fitView
+          >
+            <Background variant={BackgroundVariant.Dots} gap={20} size={1} color={theme.colors.border} />
+            <Controls />
+          </ReactFlow>
+        </FlowContainer>
+
+        {alphaList.length > 0 && (
+          <AlphaListPanel
+            alphas={alphaList}
+            onChange={setAlphaList}
+            onSave={handleSaveAlphas}
+          />
+        )}
+      </FlowSection>
+
+      <NodeConfigModal
+        visible={modalVisible}
+        nodeType={selectedNodeType}
+        nodeData={selectedNodeId ? nodeStates[selectedNodeId]?.config : {}}
+        onSave={handleSaveNodeConfig}
+        onClose={() => setModalVisible(false)}
+      />
     </Container>
   );
 };
