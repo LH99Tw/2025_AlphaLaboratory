@@ -5,14 +5,14 @@ import koKR from 'antd/locale/ko_KR';
 import 'dayjs/locale/ko';
 
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import Layout from './components/Layout';
-import Auth from './components/Auth';
-import Dashboard from './pages/Dashboard';
-import Portfolio from './pages/Portfolio';
-import Backtest from './pages/Backtest';
-import Simulation from './pages/Simulation';
-import AlphaPool from './pages/AlphaPool';
-import AlphaIncubator from './pages/AlphaIncubator';
+import { Layout } from './components/Layout/Layout';
+import { Auth } from './components/Auth/Auth';
+import { Dashboard } from './pages/Dashboard';
+import { Portfolio } from './pages/Portfolio';
+import { Backtest } from './pages/Backtest';
+import { Simulation } from './pages/Simulation';
+import { AlphaPool } from './pages/AlphaPool';
+import { AlphaIncubator } from './pages/AlphaIncubator';
 
 import './App.css';
 
@@ -25,7 +25,8 @@ const AppContent: React.FC = () => {
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
-        minHeight: '100vh'
+        minHeight: '100vh',
+        background: '#0A0E27'
       }}>
         <Spin size="large" />
       </div>
@@ -54,7 +55,16 @@ const AppContent: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <ConfigProvider locale={koKR}>
+    <ConfigProvider 
+      locale={koKR}
+      theme={{
+        token: {
+          colorPrimary: '#D4AF37',
+          colorBgBase: '#0A0E27',
+          colorTextBase: '#FFFFFF',
+        },
+      }}
+    >
       <AuthProvider>
         <AppContent />
       </AuthProvider>
@@ -63,3 +73,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+

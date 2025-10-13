@@ -26,3 +26,32 @@
     - 접근성(WCAG 2.1 AA) 및 성능 최적화 가이드라인 추가
     - LAW.md에 디자인 시스템 규칙 추가 (6-1~6-5)
     - 레퍼런스 이미지 및 컴포넌트 라이브러리 정리
+
+[5](20251014):프론트엔드 전면 재설계 및 디자인 시스템 적용
+    - 기존 frontend/src 폴더 삭제 후 처음부터 재구축
+    - Design.md 대폭 보완: 구체적인 컴포넌트 스타일 가이드 추가
+      * 카드, 버튼, 입력 필드, 테이블, 차트 등 컴포넌트별 상세 스타일
+      * Glow Effect, Shimmer Loading, Liquid Flow 등 특수 효과 정의
+      * 페이지별 레이아웃 가이드 및 반응형 브레이크포인트 구체화
+    - styled-components 기반 Glass Morphism UI 구현
+      * theme.ts: 컬러, 타이포그래피, 간격, 그림자 등 테마 시스템
+      * animations.ts: 재사용 가능한 애니메이션 정의
+      * GlassCard, GlassButton, GlassInput, LiquidBackground 공통 컴포넌트
+    - 새로운 디렉토리 구조
+      * components/common: 재사용 가능한 공통 컴포넌트
+      * components/Layout: 레이아웃 및 네비게이션
+      * components/Auth: 인증 컴포넌트
+      * pages: 6개 페이지 (Dashboard, Backtest, Portfolio, AlphaPool, AlphaIncubator, Simulation)
+      * contexts: React Context (AuthContext)
+      * services: API 클라이언트 통합 관리
+      * styles: 테마 및 애니메이션
+      * types: TypeScript 타입 정의
+    - 페이지 구현
+      * Dashboard: 시스템 상태 및 핵심 메트릭 표시
+      * Backtest: 백테스트 파라미터 설정 및 결과 시각화
+      * Portfolio, AlphaPool, AlphaIncubator, Simulation: Coming Soon 페이지
+    - 문서 업데이트
+      * README.md: 프로젝트 전체 구조 및 사용법 재작성
+      * Structure.md: 상세한 프론트엔드 구조 추가
+      * LAW.md: 프론트엔드 구조 규칙 추가 (7-1~7-5)
+    - package.json에 styled-components 의존성 추가

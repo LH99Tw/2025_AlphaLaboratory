@@ -1,20 +1,20 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { apiService, type User } from '../services/api';
+import type { User } from '../types';
 
 interface AuthContextType {
   user: User | null;
-  loading: boolean;
-  login: (user: User) => void;
-  logout: () => void;
   isAuthenticated: boolean;
+  loading: boolean;
+  login: (username: string, password: string) => Promise<void>;
+  logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
   }
   return context;
 };
@@ -28,45 +28,44 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    checkAuthStatus();
+    // 로컬 스토리지에서 사용자 정보 복원
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
+    setLoading(false);
   }, []);
 
-  const checkAuthStatus = async () => {
+  const login = async (username: string, password: string) => {
     try {
-      const response = await apiService.getCurrentUser();
-      setUser(response.user);
+      // TODO: 실제 API 연동
+      const mockUser: User = {
+        id: '1',
+        username,
+        email: `${username}@example.com`,
+      };
+      
+      setUser(mockUser);
+      localStorage.setItem('user', JSON.stringify(mockUser));
     } catch (error) {
-      setUser(null);
-    } finally {
-      setLoading(false);
+      console.error('Login failed:', error);
+      throw error;
     }
   };
 
-  const login = (userData: User) => {
-    setUser(userData);
-  };
-
-  const logout = async () => {
-    try {
-      await apiService.logout();
-    } catch (error) {
-      console.error('로그아웃 오류:', error);
-    } finally {
-      setUser(null);
-    }
+  const logout = () => {
+    setUser(null);
+    localStorage.removeItem('user');
   };
 
   const value: AuthContextType = {
     user,
+    isAuthenticated: !!user,
     loading,
     login,
     logout,
-    isAuthenticated: !!user,
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
+
