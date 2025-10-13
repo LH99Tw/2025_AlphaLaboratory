@@ -21,7 +21,7 @@ const PrimaryButton = styled.button`
   font-weight: 600;
   font-size: 16px;
   cursor: pointer;
-  transition: all ${theme.transitions.normal};
+  transition: all ${theme.transitions.spring};
   display: flex;
   align-items: center;
   gap: 8px;
@@ -51,7 +51,7 @@ const SecondaryButton = styled.button`
   font-size: 16px;
   cursor: pointer;
   backdrop-filter: blur(10px);
-  transition: all ${theme.transitions.normal};
+  transition: all ${theme.transitions.spring};
   display: flex;
   align-items: center;
   gap: 8px;

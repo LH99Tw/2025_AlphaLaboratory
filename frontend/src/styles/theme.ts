@@ -25,10 +25,10 @@ export const theme = {
     accentGold: '#D4AF37',
     accentGradient: 'linear-gradient(135deg, #8AB4F8 0%, #A8C7FA 100%)',
     
-    // 상태 컬러
-    success: '#81C995',
-    warning: '#FDD663',
-    error: '#F28B82',
+    // 상태 컬러 (통일된 색상 팔레트)
+    success: '#10B981',
+    warning: '#F59E0B',
+    error: '#EF4444',
     info: '#8AB4F8',
   },
   
@@ -69,11 +69,13 @@ export const theme = {
     wide: '1920px',
   },
   
-  // 애니메이션
+  // 애니메이션 (현업 수준의 이징 함수)
   transitions: {
-    fast: '0.15s ease',
-    normal: '0.3s ease',
-    slow: '0.5s ease',
+    fast: '0.15s cubic-bezier(0.16, 1, 0.3, 1)',
+    normal: '0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+    slow: '0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+    spring: '0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+    bounce: '0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55)',
   },
   
   // 그림자 (Liquid Glass 스타일)
@@ -85,17 +87,18 @@ export const theme = {
     soft: '0 2px 8px rgba(0, 0, 0, 0.25)',
   },
   
-  // 차트 색상
+  // 차트 색상 (메인 컬러와 통일)
   chartColors: {
-    primary: '#D4AF37',
+    primary: '#8AB4F8',  // 메인 액센트 컬러와 통일
     success: '#10B981',
     warning: '#F59E0B',
     error: '#EF4444',
-    info: '#3B82F6',
+    info: '#8AB4F8',
+    gold: '#D4AF37',  // 골드 컬러는 별도로 유지
     gradient: [
-      'rgba(212, 175, 55, 0.8)',
-      'rgba(212, 175, 55, 0.4)',
-      'rgba(212, 175, 55, 0.1)',
+      'rgba(138, 180, 248, 0.8)',
+      'rgba(138, 180, 248, 0.4)',
+      'rgba(138, 180, 248, 0.1)',
     ],
   },
 };

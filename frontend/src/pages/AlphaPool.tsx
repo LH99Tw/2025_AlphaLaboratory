@@ -125,8 +125,8 @@ const initialNodes: Node[] = [
     data: { 
       label: (
         <>
-          <NodeLabel>📊 Data Source</NodeLabel>
-          <NodeData>S&P 500 Historical Data</NodeData>
+          <NodeLabel>📊 데이터 소스</NodeLabel>
+          <NodeData>S&P 500 과거 데이터</NodeData>
         </>
       )
     },
@@ -137,8 +137,8 @@ const initialNodes: Node[] = [
     data: { 
       label: (
         <>
-          <NodeLabel>🧬 GA Engine</NodeLabel>
-          <NodeData>Population: 50 | Gen: 1/10</NodeData>
+          <NodeLabel>🧬 GA 엔진</NodeLabel>
+          <NodeData>개체수: 50 | 세대: 1/10</NodeData>
         </>
       )
     },
@@ -150,7 +150,7 @@ const initialNodes: Node[] = [
       label: (
         <>
           <NodeLabel>⚡ Alpha 001</NodeLabel>
-          <NodeData>Fitness: 0.85 | Rank: 1</NodeData>
+          <NodeData>적합도: 0.85 | 순위: 1</NodeData>
         </>
       )
     },
@@ -162,7 +162,7 @@ const initialNodes: Node[] = [
       label: (
         <>
           <NodeLabel>⚡ Alpha 002</NodeLabel>
-          <NodeData>Fitness: 0.72 | Rank: 2</NodeData>
+          <NodeData>적합도: 0.72 | 순위: 2</NodeData>
         </>
       )
     },
@@ -174,8 +174,8 @@ const initialNodes: Node[] = [
     data: { 
       label: (
         <>
-          <NodeLabel>🎯 Best Alpha</NodeLabel>
-          <NodeData>Selected for trading</NodeData>
+          <NodeLabel>🎯 최고 알파</NodeLabel>
+          <NodeData>거래용으로 선택됨</NodeData>
         </>
       )
     },
@@ -203,9 +203,9 @@ export const AlphaPool: React.FC = () => {
   return (
     <Container>
       <div>
-        <Title>Alpha Pool - GA Evolution</Title>
+        <Title>알파 풀 - GA 진화</Title>
         <p style={{ color: theme.colors.textSecondary, marginTop: theme.spacing.sm }}>
-          Genetic Algorithm based alpha factor evolution
+          유전 알고리즘 기반 알파 팩터 진화
         </p>
       </div>
 
@@ -217,7 +217,7 @@ export const AlphaPool: React.FC = () => {
             borderRadius: '50%', 
             background: isRunning ? theme.colors.accentPrimary : theme.colors.textSecondary
           }} />
-          {isRunning ? 'Running' : 'Stopped'}
+          {isRunning ? '실행 중' : '중지됨'}
         </StatusBadge>
         
         <GlassButton
@@ -225,7 +225,7 @@ export const AlphaPool: React.FC = () => {
           onClick={() => setIsRunning(!isRunning)}
           icon={isRunning ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
         >
-          {isRunning ? 'Pause' : 'Start Evolution'}
+          {isRunning ? '일시정지' : '진화 시작'}
         </GlassButton>
       </ControlPanel>
 

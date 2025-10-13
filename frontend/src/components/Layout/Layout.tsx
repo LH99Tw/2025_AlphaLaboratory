@@ -1,10 +1,26 @@
-import React, { ReactNode, useState } from 'react';
+import React, { ReactNode, useState, createContext, useContext } from 'react';
 import styled from 'styled-components';
 import { Sidebar } from './Sidebar';
 import { LiquidBackground } from '../common/LiquidBackground';
 import { useAuth } from '../../contexts/AuthContext';
 import { LogoutOutlined, UserOutlined } from '@ant-design/icons';
 import { theme } from '../../styles/theme';
+
+// 사이드바 상태를 관리하는 Context
+interface SidebarContextType {
+  collapsed: boolean;
+  setCollapsed: (collapsed: boolean) => void;
+}
+
+const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
+
+export const useSidebar = () => {
+  const context = useContext(SidebarContext);
+  if (!context) {
+    throw new Error('useSidebar must be used within a SidebarProvider');
+  }
+  return context;
+};
 
 interface LayoutProps {
   children: ReactNode;
@@ -20,8 +36,8 @@ const LayoutContainer = styled.div`
 
 const MainContent = styled.main<{ $sidebarCollapsed: boolean }>`
   flex: 1;
-  margin-left: ${props => props.$sidebarCollapsed ? '80px' : '280px'};
-  transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-left: ${props => props.$sidebarCollapsed ? '80px' : '240px'};
+  transition: margin-left 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -31,13 +47,13 @@ const MainContent = styled.main<{ $sidebarCollapsed: boolean }>`
 
 const ContentWrapper = styled.div`
   width: 100%;
-  max-width: 1400px;
+  max-width: 1200px;
   padding: ${theme.spacing.xl};
 `;
 
 const Header = styled.header`
   width: 100%;
-  max-width: 1400px;
+  max-width: 1200px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -99,10 +115,10 @@ const LogoutButton = styled.button`
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { user, logout } = useAuth();
-  const [sidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
-    <>
+    <SidebarContext.Provider value={{ collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed }}>
       <LiquidBackground />
       <LayoutContainer>
         <Sidebar />
@@ -127,7 +143,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           </ContentWrapper>
         </MainContent>
       </LayoutContainer>
-    </>
+    </SidebarContext.Provider>
   );
 };
 

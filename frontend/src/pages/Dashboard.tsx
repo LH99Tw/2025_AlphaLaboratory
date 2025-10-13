@@ -163,9 +163,9 @@ export const Dashboard: React.FC = () => {
   return (
     <DashboardContainer>
       <div>
-        <Title>Dashboard</Title>
+        <Title>대시보드</Title>
         <p style={{ color: theme.colors.textSecondary, marginTop: theme.spacing.sm }}>
-          Quant trading system overview
+          퀀트 트레이딩 시스템 개요
         </p>
       </div>
 
@@ -176,13 +176,13 @@ export const Dashboard: React.FC = () => {
           borderRadius: '50%', 
           background: systemStatus === 'healthy' ? theme.colors.success : theme.colors.error 
         }} />
-        {systemStatus === 'healthy' ? 'System Online' : 'System Check Required'}
+        {systemStatus === 'healthy' ? '시스템 온라인' : '시스템 점검 필요'}
       </StatusBadge>
 
       <MetricsGrid>
         <MetricCard>
           <MetricHeader>
-            <MetricTitle>Registered Alphas</MetricTitle>
+            <MetricTitle>등록된 알파</MetricTitle>
             <MetricIcon $color={theme.colors.accentGold}>
               <ThunderboltOutlined />
             </MetricIcon>
@@ -190,26 +190,26 @@ export const Dashboard: React.FC = () => {
           <MetricValue>{metrics.totalAlphas}</MetricValue>
           <MetricChange $positive={true}>
             <RiseOutlined />
-            +5 (this week)
+            +5 (이번 주)
           </MetricChange>
         </MetricCard>
 
         <MetricCard>
           <MetricHeader>
-            <MetricTitle>Active Backtests</MetricTitle>
+            <MetricTitle>활성 백테스트</MetricTitle>
             <MetricIcon $color={theme.colors.info}>
               <ExperimentOutlined />
             </MetricIcon>
           </MetricHeader>
           <MetricValue>{metrics.activeBacktests}</MetricValue>
           <MetricChange $positive={true}>
-            <span>Running</span>
+            <span>실행 중</span>
           </MetricChange>
         </MetricCard>
 
         <MetricCard>
           <MetricHeader>
-            <MetricTitle>Portfolio Value</MetricTitle>
+            <MetricTitle>포트폴리오 가치</MetricTitle>
             <MetricIcon $color={theme.colors.success}>
               $
             </MetricIcon>
@@ -217,13 +217,13 @@ export const Dashboard: React.FC = () => {
           <MetricValue>${(metrics.portfolioValue / 1000000).toFixed(2)}M</MetricValue>
           <MetricChange $positive={true}>
             <RiseOutlined />
-            +2.3% (today)
+            +2.3% (오늘)
           </MetricChange>
         </MetricCard>
 
         <MetricCard>
           <MetricHeader>
-            <MetricTitle>Daily P&L</MetricTitle>
+            <MetricTitle>일일 손익</MetricTitle>
             <MetricIcon $color={metrics.dailyPnL >= 0 ? theme.colors.success : theme.colors.error}>
               {metrics.dailyPnL >= 0 ? <RiseOutlined /> : <FallOutlined />}
             </MetricIcon>
@@ -238,24 +238,24 @@ export const Dashboard: React.FC = () => {
 
       <ChartsSection>
         <ChartCard>
-          <ChartTitle>Recent Backtest Performance</ChartTitle>
+          <ChartTitle>최근 백테스트 성과</ChartTitle>
           <p style={{ color: theme.colors.textSecondary }}>
-            Chart implementation (Coming Soon)
+            차트 구현 예정 (Coming Soon)
           </p>
         </ChartCard>
 
         <ChartCard>
-          <ChartTitle>Alpha Factor Distribution</ChartTitle>
+          <ChartTitle>알파 팩터 분포</ChartTitle>
           <p style={{ color: theme.colors.textSecondary }}>
-            Chart implementation (Coming Soon)
+            차트 구현 예정 (Coming Soon)
           </p>
         </ChartCard>
       </ChartsSection>
 
       <GlassCard>
-        <ChartTitle>Recent Activity</ChartTitle>
+        <ChartTitle>최근 활동</ChartTitle>
         <p style={{ color: theme.colors.textSecondary }}>
-          Activity log table (Coming Soon)
+          활동 로그 테이블 구현 예정 (Coming Soon)
         </p>
       </GlassCard>
     </DashboardContainer>

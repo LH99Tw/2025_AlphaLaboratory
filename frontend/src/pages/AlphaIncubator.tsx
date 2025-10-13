@@ -142,33 +142,33 @@ const initialNodes: Node[] = [
   {
     id: '1',
     type: 'input',
-    data: { label: <NodeLabel>📥 User Query</NodeLabel> },
+    data: { label: <NodeLabel>📥 사용자 질문</NodeLabel> },
     position: { x: 50, y: 200 },
   },
   {
     id: '2',
-    data: { label: <NodeLabel>🎯 Coordinator</NodeLabel> },
+    data: { label: <NodeLabel>🎯 코디네이터</NodeLabel> },
     position: { x: 300, y: 200 },
   },
   {
     id: '3',
-    data: { label: <NodeLabel>📊 Data Analyst</NodeLabel> },
+    data: { label: <NodeLabel>📊 데이터 분석가</NodeLabel> },
     position: { x: 550, y: 50 },
   },
   {
     id: '4',
-    data: { label: <NodeLabel>🔬 Alpha Researcher</NodeLabel> },
+    data: { label: <NodeLabel>🔬 알파 연구원</NodeLabel> },
     position: { x: 550, y: 200 },
   },
   {
     id: '5',
-    data: { label: <NodeLabel>💼 Portfolio Manager</NodeLabel> },
+    data: { label: <NodeLabel>💼 포트폴리오 매니저</NodeLabel> },
     position: { x: 550, y: 350 },
   },
   {
     id: '6',
     type: 'output',
-    data: { label: <NodeLabel>📤 Response</NodeLabel> },
+    data: { label: <NodeLabel>📤 응답</NodeLabel> },
     position: { x: 800, y: 200 },
   },
 ];
@@ -188,7 +188,7 @@ export const AlphaIncubator: React.FC = () => {
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<Array<{ text: string; isUser: boolean }>>([
-    { text: 'Hello! I\'m your AI assistant. Ask me about alpha factors, backtesting, or portfolio analysis.', isUser: false }
+    { text: '안녕하세요! 저는 AI 어시스턴트입니다. 알파 팩터, 백테스트, 포트폴리오 분석에 대해 질문해주세요.', isUser: false }
   ]);
 
   const onConnect = useCallback(
@@ -225,9 +225,9 @@ export const AlphaIncubator: React.FC = () => {
     <Container>
       <LeftPanel>
         <div>
-          <Title>Alpha Incubator</Title>
+          <Title>알파 부화장</Title>
           <p style={{ color: theme.colors.textSecondary, marginTop: theme.spacing.sm }}>
-            AI-powered alpha research assistant
+            AI 기반 알파 연구 어시스턴트
           </p>
         </div>
 
@@ -244,7 +244,7 @@ export const AlphaIncubator: React.FC = () => {
             <GlassInput
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="Ask about alpha factors..."
+              placeholder="알파 팩터에 대해 질문하세요..."
               onKeyPress={(e) => e.key === 'Enter' && handleSend()}
             />
             <GlassButton
@@ -252,7 +252,7 @@ export const AlphaIncubator: React.FC = () => {
               onClick={handleSend}
               icon={<SendOutlined />}
             >
-              Send
+              전송
             </GlassButton>
           </ChatInput>
         </ChatContainer>

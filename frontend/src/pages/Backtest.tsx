@@ -162,7 +162,7 @@ export const Backtest: React.FC = () => {
   return (
     <BacktestContainer>
       <LeftPanel>
-        <Title>Backtest</Title>
+        <Title>백테스트</Title>
 
         <GlassCard>
           <FormGroup>
