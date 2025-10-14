@@ -25,6 +25,7 @@ import numpy as np
 import traceback
 import threading
 import time
+from user_database import UserDatabase
 
 def load_real_data_for_ga():
     """GA를 위한 실제 데이터 로드"""
@@ -236,6 +237,7 @@ backtest_system = None
 ga_system = None
 langchain_agent = None
 database_manager = None
+user_database = None
 
 # 작업 상태 추적을 위한 딕셔너리
 task_status = {}
@@ -326,7 +328,7 @@ def update_last_login(username):
 
 def initialize_systems():
     """시스템 초기화"""
-    global backtest_system, ga_system, langchain_agent, database_manager
+    global backtest_system, ga_system, langchain_agent, database_manager, user_database
     
     try:
         # Backend Module - 백테스트 시스템
@@ -419,6 +421,14 @@ def initialize_systems():
         else:
             database_manager = BacktestSystem()
             logger.info("✅ 데이터베이스 매니저 초기화 완료")
+        
+        # 사용자 데이터베이스 초기화
+        try:
+            user_database = UserDatabase()
+            logger.info("✅ 사용자 데이터베이스 초기화 완료")
+        except Exception as e:
+            logger.warning(f"⚠️ 사용자 데이터베이스 초기화 실패: {e}")
+            user_database = None
         
     except Exception as e:
         logger.error(f"❌ 시스템 초기화 실패: {str(e)}")
@@ -1818,6 +1828,264 @@ def update_dashboard_data(user_id):
         logger.error(f"대시보드 데이터 업데이트 오류: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+# ===================== 사용자 계정 관리 API =====================
+
+@app.route('/api/user/register', methods=['POST'])
+def register_user():
+    """사용자 등록"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+        name = data.get('name', '').strip()
+        
+        if not all([username, email, password]):
+            return jsonify({'error': '필수 필드가 누락되었습니다'}), 400
+        
+        if user_database is None:
+            return jsonify({'error': '사용자 데이터베이스가 초기화되지 않았습니다'}), 500
+        
+        user_id = user_database.create_user(username, email, password, name)
+        
+        return jsonify({
+            'success': True,
+            'message': '사용자가 성공적으로 등록되었습니다',
+            'user_id': user_id
+        })
+        
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"사용자 등록 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user/login', methods=['POST'])
+def user_login():
+    """사용자 로그인"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+        
+        if not username or not password:
+            return jsonify({'error': '사용자명과 비밀번호를 입력해주세요'}), 400
+        
+        if user_database is None:
+            return jsonify({'error': '사용자 데이터베이스가 초기화되지 않았습니다'}), 500
+        
+        user_id = user_database.authenticate_user(username, password)
+        if not user_id:
+            return jsonify({'error': '인증에 실패했습니다'}), 401
+        
+        # 세션에 사용자 ID 저장
+        session['user_id'] = user_id
+        
+        return jsonify({
+            'success': True,
+            'message': '로그인 성공',
+            'user_id': user_id
+        })
+        
+    except Exception as e:
+        logger.error(f"사용자 로그인 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user/info', methods=['GET'])
+def get_user_info():
+    """사용자 정보 조회"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        if user_database is None:
+            return jsonify({'error': '사용자 데이터베이스가 초기화되지 않았습니다'}), 500
+        
+        user_info = user_database.get_user_info(user_id)
+        if not user_info:
+            return jsonify({'error': '사용자 정보를 찾을 수 없습니다'}), 404
+        
+        return jsonify({
+            'success': True,
+            'user_info': user_info
+        })
+        
+    except Exception as e:
+        logger.error(f"사용자 정보 조회 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user/update', methods=['PUT'])
+def update_user_info():
+    """사용자 정보 업데이트"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        data = request.get_json()
+        
+        if user_database is None:
+            return jsonify({'error': '사용자 데이터베이스가 초기화되지 않았습니다'}), 500
+        
+        success = user_database.update_user_info(user_id, **data)
+        if not success:
+            return jsonify({'error': '사용자 정보 업데이트에 실패했습니다'}), 400
+        
+        return jsonify({
+            'success': True,
+            'message': '사용자 정보가 업데이트되었습니다'
+        })
+        
+    except Exception as e:
+        logger.error(f"사용자 정보 업데이트 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user/change-password', methods=['POST'])
+def change_password():
+    """비밀번호 변경"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        data = request.get_json()
+        current_password = data.get('current_password', '')
+        new_password = data.get('new_password', '')
+        
+        if not current_password or not new_password:
+            return jsonify({'error': '현재 비밀번호와 새 비밀번호를 입력해주세요'}), 400
+        
+        if user_database is None:
+            return jsonify({'error': '사용자 데이터베이스가 초기화되지 않았습니다'}), 500
+        
+        success = user_database.change_password(user_id, current_password, new_password)
+        if not success:
+            return jsonify({'error': '비밀번호 변경에 실패했습니다. 현재 비밀번호를 확인해주세요'}), 400
+        
+        return jsonify({
+            'success': True,
+            'message': '비밀번호가 변경되었습니다'
+        })
+        
+    except Exception as e:
+        logger.error(f"비밀번호 변경 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user/investment', methods=['GET'])
+def get_user_investment():
+    """사용자 투자 데이터 조회"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        if user_database is None:
+            return jsonify({'error': '사용자 데이터베이스가 초기화되지 않았습니다'}), 500
+        
+        investment_data = user_database.get_user_investment_data(user_id)
+        if not investment_data:
+            return jsonify({'error': '투자 데이터를 찾을 수 없습니다'}), 404
+        
+        return jsonify({
+            'success': True,
+            'investment_data': investment_data
+        })
+        
+    except Exception as e:
+        logger.error(f"투자 데이터 조회 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user/investment', methods=['PUT'])
+def update_user_investment():
+    """사용자 투자 데이터 업데이트"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        data = request.get_json()
+        
+        if user_database is None:
+            return jsonify({'error': '사용자 데이터베이스가 초기화되지 않았습니다'}), 500
+        
+        success = user_database.update_user_investment_data(user_id, **data)
+        if not success:
+            return jsonify({'error': '투자 데이터 업데이트에 실패했습니다'}), 400
+        
+        return jsonify({
+            'success': True,
+            'message': '투자 데이터가 업데이트되었습니다'
+        })
+        
+    except Exception as e:
+        logger.error(f"투자 데이터 업데이트 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user/settings', methods=['GET'])
+def get_user_settings():
+    """사용자 설정 조회"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        if user_database is None:
+            return jsonify({'error': '사용자 데이터베이스가 초기화되지 않았습니다'}), 500
+        
+        settings = user_database.get_user_settings(user_id)
+        if not settings:
+            return jsonify({'error': '설정 데이터를 찾을 수 없습니다'}), 404
+        
+        return jsonify({
+            'success': True,
+            'settings': settings
+        })
+        
+    except Exception as e:
+        logger.error(f"설정 데이터 조회 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user/settings', methods=['PUT'])
+def update_user_settings():
+    """사용자 설정 업데이트"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        data = request.get_json()
+        
+        if user_database is None:
+            return jsonify({'error': '사용자 데이터베이스가 초기화되지 않았습니다'}), 500
+        
+        success = user_database.update_user_settings(user_id, **data)
+        if not success:
+            return jsonify({'error': '설정 업데이트에 실패했습니다'}), 400
+        
+        return jsonify({
+            'success': True,
+            'message': '설정이 업데이트되었습니다'
+        })
+        
+    except Exception as e:
+        logger.error(f"설정 업데이트 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user/logout', methods=['POST'])
+def user_logout():
+    """사용자 로그아웃"""
+    try:
+        session.pop('user_id', None)
+        return jsonify({
+            'success': True,
+            'message': '로그아웃되었습니다'
+        })
+        
+    except Exception as e:
+        logger.error(f"로그아웃 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({'error': '요청한 엔드포인트를 찾을 수 없습니다'}), 404
@@ -1835,7 +2103,7 @@ if __name__ == '__main__':
     # 서버 실행
     app.run(
         host='0.0.0.0',
-        port=5002,  # 포트 변경
+        port=5000,  # 포트 변경
         debug=True,
         threaded=True
     )

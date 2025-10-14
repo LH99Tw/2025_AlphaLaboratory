@@ -56,6 +56,15 @@ export const theme = {
       body: '1rem',     // 16px
       caption: '0.875rem', // 14px
       code: '0.875rem', // 14px
+      sm: '0.75rem',    // 12px
+    },
+    fontWeight: {
+      light: '300',
+      normal: '400',
+      medium: '500',
+      semibold: '600',
+      bold: '700',
+      extrabold: '800',
     },
   },
   
@@ -67,6 +76,17 @@ export const theme = {
     lg: '24px',
     xl: '32px',
     xxl: '48px',
+  },
+  
+  // 테두리 반경
+  borderRadius: {
+    xs: '4px',
+    sm: '6px',
+    md: '8px',
+    lg: '12px',
+    xl: '16px',
+    xxl: '24px',
+    full: '50%',
   },
   
   // 반응형 브레이크포인트

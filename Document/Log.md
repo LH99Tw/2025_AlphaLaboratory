@@ -386,6 +386,44 @@
     - **선택된 버튼 글자색**: `color: '#000000'` → `color: theme.colors.textPrimary`로 변경하여 하얀색 적용
     - **호버 시 글자색 통일**: 모든 호버 상태에서 `color: theme.colors.textPrimary` 적용하여 일관성 확보
 
+### [12] 2025.01.15 - '내 투자' 페이지 및 사용자 데이터베이스 시스템 구현
+
+#### '내 투자' 페이지 구현
+- **페이지 생성**: `MyInvestment.tsx` 컴포넌트 생성
+- **자산 현황 섹션**: 총 자산, 현금/투자 비중을 도넛 차트로 시각화
+- **계정 설정 섹션**: 이름, 이메일, 비밀번호 변경 기능
+- **자산 변화 차트**: 월별 자산 변화를 바 차트로 표시
+- **반응형 디자인**: 모바일/데스크톱 대응 그리드 레이아웃
+
+#### 사이드바 메뉴 추가
+- **메뉴 아이템 추가**: '내 투자' 메뉴를 대시보드 바로 아래에 배치
+- **아이콘 추가**: `UserOutlined` 아이콘 사용
+- **라우팅 연결**: `/my-investment` 경로로 연결
+
+#### 사용자 데이터베이스 모듈 설계
+- **UserDatabase 클래스**: 사용자 계정, 투자 데이터, 설정 통합 관리
+- **데이터 구조**: JSON 파일 기반 (users.json, user_investments.json, user_settings.json)
+- **보안**: 비밀번호 SHA256 해시화, 세션 기반 인증
+- **기능**: 사용자 생성/인증/수정/삭제, 투자 데이터 관리, 설정 관리
+
+#### 백엔드 API 엔드포인트 구현
+- **사용자 등록**: `POST /api/user/register`
+- **사용자 로그인**: `POST /api/user/login`
+- **사용자 정보**: `GET /api/user/info`, `PUT /api/user/update`
+- **비밀번호 변경**: `POST /api/user/change-password`
+- **투자 데이터**: `GET /api/user/investment`, `PUT /api/user/investment`
+- **사용자 설정**: `GET /api/user/settings`, `PUT /api/user/settings`
+- **로그아웃**: `POST /api/user/logout`
+
+#### 데이터 흐름 설계
+```
+사용자 등록 → 초기 투자 데이터 생성 → 자산 현황 표시
+     ↓
+계정 설정 → 사용자 정보 수정 → 투자 데이터 업데이트
+     ↓
+자산 변화 추적 → 히스토리 저장 → 차트 시각화
+```
+
     ### 데이터 흐름 완성
     ```
     사용자 노드 설정 → GA 파라미터 입력 → "GA 실행" 클릭

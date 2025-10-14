@@ -49,7 +49,7 @@ const MainContent = styled.main<{ $sidebarCollapsed: boolean }>`
 const ContentWrapper = styled.div`
   width: 100%;
   max-width: 1400px;
-  padding: 0 ${theme.spacing.xl};
+  padding: ${theme.spacing.xl} ${theme.spacing.xl};
   display: flex;
   flex-direction: column;
   min-height: calc(100vh - 200px);

@@ -22,8 +22,6 @@ const DashboardContainer = styled.div`
   flex-direction: column;
   gap: ${theme.spacing.xl};
   min-height: calc(100vh - 200px);
-  padding: 0;
-  margin: 0;
 `;
 
 // 다이나믹 아일랜드 스타일 네비게이션 컨테이너
@@ -58,7 +56,7 @@ const DynamicIslandNav = styled.div`
 const DynamicIslandButton = styled.button<{ $active: boolean }>`
   position: relative;
   padding: ${theme.spacing.sm} ${theme.spacing.lg};
-  background: ${props => props.$active ? theme.colors.liquidGoldGradient : 'transparent'};
+  background: transparent;
   border: none;
   border-radius: 20px;
   color: ${props => props.$active ? theme.colors.textPrimary : theme.colors.textSecondary};
@@ -70,17 +68,12 @@ const DynamicIslandButton = styled.button<{ $active: boolean }>`
   text-align: center;
   z-index: 1;
   
-  /* 다이나믹 아일랜드 호버 효과 */
+  /* 호버 효과 */
   &:hover {
-    background: ${props => props.$active ? theme.colors.liquidGoldGradient : theme.colors.liquidGlassHover};
-  color: ${theme.colors.textPrimary};
+    background: ${theme.colors.liquidGlassHover};
+    color: ${theme.colors.textPrimary};
     transform: scale(1.02);
   }
-  
-  /* 활성 상태 강조 */
-  ${props => props.$active && `
-    box-shadow: 0 4px 12px rgba(212, 175, 55, 0.3);
-  `}
 `;
 
 const TabContent = styled.div`

@@ -14,6 +14,7 @@ import { Simulation } from './pages/Simulation';
 import { AlphaPool } from './pages/AlphaPool';
 import { AlphaIncubator } from './pages/AlphaIncubator';
 import { About } from './pages/About';
+import MyInvestment from './pages/MyInvestment';
 
 import './App.css';
 
@@ -43,6 +44,7 @@ const AppContent: React.FC = () => {
       <Layout>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/my-investment" element={<MyInvestment />} />
           <Route path="/portfolio" element={<Portfolio />} />
           <Route path="/backtest" element={<Backtest />} />
           <Route path="/simulation" element={<Simulation />} />
