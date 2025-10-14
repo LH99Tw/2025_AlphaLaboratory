@@ -1751,6 +1751,73 @@ def delete_user_alpha(alpha_id):
         logger.error(f"알파 삭제 오류: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/dashboard/<user_id>', methods=['GET'])
+def get_dashboard_data(user_id):
+    """대시보드 자산 데이터 조회"""
+    try:
+        dashboard_file = os.path.join(PROJECT_ROOT, 'database', 'userdata', f'{user_id}_dashboard.json')
+        
+        if not os.path.exists(dashboard_file):
+            # 기본 데이터 반환
+            return jsonify({
+                'success': True,
+                'data': {
+                    'deposits': 13126473,
+                    'savings': 7231928,
+                    'insurance': 3431750,
+                    'stocks': 32155859,
+                    'total': 55946010,
+                    'changes': {
+                        'deposits': -609281,
+                        'deposits_percent': -3.9,
+                        'savings': -802540,
+                        'savings_percent': -11.1,
+                        'insurance': 50000,
+                        'insurance_percent': 1.5,
+                        'stocks': 9256265,
+                        'stocks_percent': 28.8
+                    },
+                    'history': []
+                }
+            })
+        
+        with open(dashboard_file, 'r', encoding='utf-8') as f:
+            dashboard_data = json.load(f)
+        
+        return jsonify({
+            'success': True,
+            'data': dashboard_data
+        })
+        
+    except Exception as e:
+        logger.error(f"대시보드 데이터 조회 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/dashboard/<user_id>', methods=['POST'])
+def update_dashboard_data(user_id):
+    """대시보드 자산 데이터 업데이트"""
+    try:
+        data = request.get_json()
+        dashboard_file = os.path.join(PROJECT_ROOT, 'database', 'userdata', f'{user_id}_dashboard.json')
+        
+        # 디렉토리 생성
+        os.makedirs(os.path.dirname(dashboard_file), exist_ok=True)
+        
+        # 파일 저장
+        with open(dashboard_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"사용자 {user_id}의 대시보드 데이터 업데이트 완료")
+        
+        return jsonify({
+            'success': True,
+            'message': '대시보드 데이터가 업데이트되었습니다'
+        })
+        
+    except Exception as e:
+        logger.error(f"대시보드 데이터 업데이트 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({'error': '요청한 엔드포인트를 찾을 수 없습니다'}), 404

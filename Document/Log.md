@@ -255,6 +255,137 @@
       - `style` prop: `stroke`, `strokeWidth`, `strokeDasharray`, `filter`
       - CSS 클래스: `.react-flow__edge.completed` 셀렉터로 애니메이션
 
+### [8] 2025.01.15 - 사이드바 토글 기능 개선
+    ### 사이드바 토글 시 아이콘 간격 조정
+    - **아이콘 간격 축소**: 토글 상태에서 아이콘들이 더 가까이 붙도록 조정
+    - **프로그램 아이콘 변경**: Flask 아이콘을 흰 동그라미 아이콘으로 대체
+    - **사이드바 크기 최적화**: 토글 시 공간 효율성 개선
+
+### [9] 2025.01.15 - Dashboard 메인 페이지 Tab 기능 완전 구현 (Chrome 스타일)
+    
+    ### 백엔드 API 구현
+    - **유저별 자산 데이터 관리**: `/api/dashboard/{user_id}` GET/POST 엔드포인트
+    - **JSON 데이터 저장**: `Database/userdata/{user_id}_dashboard.json`
+    - **기본 데이터 제공**: 파일이 없을 경우 샘플 데이터 반환
+    
+    ### 프론트엔드 탭 UI 구조 (Chrome 스타일)
+    - **TabsContainer**: Chrome 스타일의 탭 네비게이션
+    - **3개 탭 구현**:
+      1. 내 자산 한눈에 보기
+      2. 자산 관리
+      3. 보유 주식 관리
+    
+    ### Chrome 스타일 탭 UI 개선 (2차 수정)
+    - **색상 팔레트 단순화**: 흰색과 금색 계열만 사용 (Design.md 준수)
+    - **불필요한 자산 제거**: 보험, 예적금 제거, 주식과 현금만 표시
+    - **탭 위치 조정**: 헤더 바로 아래 배치, 상단 여백 제거
+    - **박스와 글자 크기 최적화**: 가독성 개선을 위한 폰트 사이즈 조정
+    - **Chrome 탭 스타일 완벽 구현**: 
+      - 둥근 모서리, 상단 금색 강조선
+      - 활성 탭과 비활성 탭의 명확한 구분
+      - 부드러운 호버 효과
+    
+    ### 탭 1: 내 자산 한눈에 보기
+    - **2개 자산 카드**:
+      - 현금 자산 (흰색 글래스 효과)
+      - 주식 자산 (금색 그라데이션)
+      - 각 카드: 금액, 변동금액, 변동률(%) 표시
+    
+    - **도넛 차트**: Chart.js를 사용한 자산 비율 시각화
+      - 주식 57.2%, 현금 42.8%
+      - 금색과 흰색 계열만 사용
+      - 중앙에 총 자산 합계 표시
+      - 반응형 레전드
+    
+    - **적층형 바 차트**: 월별 자산 성장 추이
+      - 2개 레이어: 주식(금색), 현금(흰색 계열)
+      - 13개월 데이터 (24-02 ~ 25-02)
+      - Y축: 0 ~ 60M 범위, M 단위 표시
+      - 금색과 흰색 팔레트만 사용
+    
+    - **기간 선택 기능**:
+      - 1년/30일 토글 버튼
+      - Ant Design Slider 컴포넌트
+      - 동적 기간 조정
+    
+    ### 탭 2: 자산 관리
+    - **보유 현금 상세**: 보유 현금 총액 (글래스 카드)
+    - **보유 주식 상세**: 평가금액, 평가손익(금색 강조), 수익률
+    - **최근 거래 내역**: 날짜별 거래 내역 (입금/출금/배당)
+      - 입금은 금색, 출금은 회색으로 표시
+    
+    ### 탭 3: 보유 주식 관리
+    - **보유 주식 리스트**: 종목명, 수량, 평균 매수가, 평가금액, 수익률 표시
+      - 수익률 양수는 금색, 음수는 회색
+    - **섹터별 보유 현황**: 도넛 차트로 기술/금융/헬스케어/에너지 비율
+      - 금색 계열 그라데이션 사용
+    - **최근 매매 내역**: 매수/매도 내역 타임라인
+      - 매도는 금색, 매수는 회색 강조
+    
+    ### 기술 스택
+    - **Chart.js + react-chartjs-2**: 도넛/바 차트 렌더링
+    - **Ant Design Slider**: 기간 선택 슬라이더
+    - **styled-components**: 컴포넌트 스타일링
+    - **TypeScript**: 타입 안정성
+    
+    ### 디자인 시스템 적용
+    - **Chrome 스타일 탭**: 둥근 모서리, 금색 상단 강조선, 명확한 활성/비활성 구분
+    - **색상 팔레트 준수**: Design.md에 명시된 흰색-금색 팔레트만 사용
+    - **Liquid Glass 효과**: 모든 카드에 일관된 글래스모피즘
+    - **금색 강조 색상**: 중요 정보에 liquidGoldGradient 적용
+    - **반응형 그리드**: 화면 크기에 따라 레이아웃 조정
+    - **일관된 타이포그래피**: theme.typography 사용
+    - **헤더 바로 아래 탭 배치**: 상단 여백 제거, ContentWrapper 높이 100vh 설정
+    
+    ### 색상 팔레트 개선 (2차 수정)
+    - **쨍한 노란색 제거**: `#FFD700`, `#FFA500`, `#FF8C00` 등 눈에 아픈 색상 완전 제거
+    - **부드러운 금색 적용**: `#D4AF37` (부드러운 골드), `#B8860B` (다크 골든로드) 사용
+    - **전체 색상 통일**: theme.ts, Dashboard.tsx, GlassButton.tsx, Sidebar.tsx, LiquidBackground.tsx 모든 파일 수정
+    - **좌우 패딩 복원**: ContentWrapper에 `padding: 0 ${theme.spacing.xl}` 추가
+    
+    ### 탭 UI 개선 (3차 수정)
+    - **탭 내 스크롤 제거**: `overflow-y: auto` → `overflow: visible`로 변경하여 모든 내용이 펼쳐지도록 수정
+    - **탭 좌측 여백 제거**: ChromeTabsContainer의 `padding: 0 ${theme.spacing.lg}` → `padding: 0`으로 변경
+    - **컨테이너 높이 조정**: DashboardContainer의 `height: 100%` → `min-height: 100vh`로 변경하여 내용에 따라 자동 확장
+    
+    ### 푸터 잘림 문제 해결 (4차 수정)
+    - **Dashboard 높이 조정**: `min-height: 100vh` → `min-height: calc(100vh - 200px)`로 변경하여 푸터 공간 확보
+    - **Layout 높이 조정**: ContentWrapper의 `height: 100vh` → `min-height: calc(100vh - 200px)`로 변경
+    - **푸터 공간 확보**: 200px 여백을 두어 푸터가 잘리지 않도록 수정
+    
+    ### Chrome 스타일 탭 완전 구현 (5차 수정)
+    - **위쪽 여백 추가**: ChromeTabsContainer에 `padding: 8px 0 0 0` 추가하여 위쪽에 살짝 여백 생성
+    - **둥글게 픽된 효과**: `border-top-left-radius: 12px`, `border-top-right-radius: 12px`로 더 둥글게 처리
+    - **자연스러운 연결**: `::before` 가상 요소로 위쪽에 8px 높이의 배경을 추가하여 아래와 자연스럽게 연결
+    - **금색 강조선**: `::after` 가상 요소로 활성 탭 상단에 3px 높이의 금색 강조선 추가
+    - **z-index 레이어링**: 활성 탭이 위로 올라오도록 z-index 설정
+    - **부드러운 전환**: `transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1)`로 자연스러운 애니메이션
+    
+    ### Chrome 브라우저와 완전 동일한 탭 구현 (6차 수정)
+    - **활성 탭 보더 제거**: 활성 탭의 `border: none`으로 하단 보더 완전 제거
+    - **비활성 탭 보더 유지**: 비활성 탭은 `border: 1px solid ${theme.colors.border}` 유지
+    - **탭 간격 제거**: `gap: 0`으로 탭들이 완전히 붙도록 설정
+    - **콘텐츠 영역 연결**: TabContent에 `border-top: none`, `margin-top: -1px` 추가
+    - **완전한 연결**: 활성 탭이 콘텐츠 영역과 시각적으로 하나의 단위로 보이도록 구현
+    - **둥근 모서리**: TabContent에 `border-bottom-left-radius: 12px`, `border-bottom-right-radius: 12px` 추가
+    
+    ### 다이나믹 아일랜드 스타일 네비게이션 구현 (7차 수정)
+    - **Chrome 스타일 탭 제거**: 복잡한 Chrome 스타일 탭을 완전히 제거
+    - **다이나믹 아일랜드 네비게이션**: Apple의 다이나믹 아일랜드를 참고한 슬림한 네비게이션 바 구현
+    - **글래스모피즘 효과**: `backdrop-filter: blur(20px)`, `liquidGlass` 배경으로 투명 유리 효과
+    - **둥근 모서리**: `border-radius: 28px`로 다이나믹 아일랜드와 동일한 둥글기
+    - **중앙 정렬**: `justify-content: center`, `max-width: fit-content`로 중앙에 배치
+    - **활성 버튼 강조**: 활성 버튼에 `liquidGoldGradient` 배경과 그림자 효과
+    - **호버 애니메이션**: `transform: scale(1.02)`로 부드러운 확대 효과
+    - **콘텐츠 영역 분리**: TabContent를 독립적인 카드로 분리하여 더 깔끔한 레이아웃
+
+    ### 다이나믹 아일랜드 스타일 개선 (8차 수정)
+    - **테마 에러 수정**: `liquidGlassGradient` → `liquidGlass`로 수정하여 TypeScript 에러 해결
+    - **좌측 정렬**: `justify-content: center` → `justify-content: flex-start`로 변경하여 좌측 정렬
+    - **좌측 패딩 추가**: `margin: auto` → `margin: ${theme.spacing.lg} ${theme.spacing.lg}`로 좌측 여백 추가
+    - **선택된 버튼 글자색**: `color: '#000000'` → `color: theme.colors.textPrimary`로 변경하여 하얀색 적용
+    - **호버 시 글자색 통일**: 모든 호버 상태에서 `color: theme.colors.textPrimary` 적용하여 일관성 확보
+
     ### 데이터 흐름 완성
     ```
     사용자 노드 설정 → GA 파라미터 입력 → "GA 실행" 클릭

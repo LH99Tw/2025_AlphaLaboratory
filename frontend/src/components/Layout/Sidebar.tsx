@@ -135,7 +135,7 @@ const NavItem = styled.div<{ $active: boolean; $collapsed: boolean }>`
     color: #FFFFFF;
     transform: ${props => props.$collapsed ? 'scale(1.1)' : 'translateX(4px)'};
     box-shadow: ${props => props.$collapsed 
-      ? '0 4px 12px rgba(255, 215, 0, 0.3)' 
+      ? '0 4px 12px rgba(212, 175, 55, 0.3)' 
       : 'none'
     };
   }

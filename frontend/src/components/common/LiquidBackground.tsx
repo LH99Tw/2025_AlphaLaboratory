@@ -12,9 +12,9 @@ const BackgroundWrapper = styled.div`
   overflow: hidden;
   background: radial-gradient(
     ellipse at center top,
-    rgba(255, 215, 0, 0.08) 0%,
-    rgba(255, 165, 0, 0.05) 30%,
-    rgba(255, 140, 0, 0.03) 60%,
+    rgba(212, 175, 55, 0.08) 0%,
+    rgba(184, 134, 11, 0.05) 30%,
+    rgba(160, 120, 8, 0.03) 60%,
     #0A0E27 100%
   );
 `;

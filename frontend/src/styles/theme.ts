@@ -20,20 +20,20 @@ export const theme = {
     textSecondary: '#9AA0A6',
     textTertiary: '#5F6368',
     
-    // 포인트 컬러 (따뜻한 금색 계열)
-    accentPrimary: '#FFD700',  // 순금색
-    accentGold: '#FFA500',     // 오렌지 골드
-    accentGradient: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+    // 포인트 컬러 (부드러운 따뜻한 금색 계열)
+    accentPrimary: '#D4AF37',  // 부드러운 골드
+    accentGold: '#B8860B',     // 다크 골든로드
+    accentGradient: 'linear-gradient(135deg, #D4AF37 0%, #B8860B 100%)',
     
     // 리퀴드 글래스 금색 (부드러운 반투명 효과)
-    liquidGold: 'rgba(255, 215, 0, 0.12)',
-    liquidGoldBorder: 'rgba(255, 165, 0, 0.3)',
-    liquidGoldHover: 'rgba(255, 215, 0, 0.2)',
-    liquidGoldGradient: 'linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(255, 165, 0, 0.08) 50%, rgba(255, 140, 0, 0.05) 100%)',
+    liquidGold: 'rgba(212, 175, 55, 0.12)',
+    liquidGoldBorder: 'rgba(184, 134, 11, 0.3)',
+    liquidGoldHover: 'rgba(212, 175, 55, 0.2)',
+    liquidGoldGradient: 'linear-gradient(135deg, rgba(212, 175, 55, 0.15) 0%, rgba(184, 134, 11, 0.08) 50%, rgba(160, 120, 8, 0.05) 100%)',
     
-    // 빛나는 텍스트 효과
-    glowingText: 'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%)',
-    glowingTextHover: 'linear-gradient(135deg, #FFF8DC 0%, #FFD700 50%, #FFA500 100%)',
+    // 빛나는 텍스트 효과 (부드러운 색상)
+    glowingText: 'linear-gradient(135deg, #D4AF37 0%, #B8860B 50%, #A07808 100%)',
+    glowingTextHover: 'linear-gradient(135deg, #F4E4BC 0%, #D4AF37 50%, #B8860B 100%)',
     
     // 상태 컬러 (통일된 색상 팔레트)
     success: '#10B981',

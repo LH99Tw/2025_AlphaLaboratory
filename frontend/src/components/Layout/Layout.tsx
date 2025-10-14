@@ -48,20 +48,24 @@ const MainContent = styled.main<{ $sidebarCollapsed: boolean }>`
 
 const ContentWrapper = styled.div`
   width: 100%;
-  max-width: 1200px;
-  padding: ${theme.spacing.xl};
+  max-width: 1400px;
+  padding: 0 ${theme.spacing.xl};
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 200px);
 `;
 
 const Header = styled.header`
   width: 100%;
-  max-width: 1200px;
+  max-width: 1400px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: ${theme.spacing.sm} ${theme.spacing.xl};
   background: ${theme.colors.backgroundDark};
   border-bottom: 1px solid ${theme.colors.border};
-  margin-bottom: ${theme.spacing.lg};
+  margin-bottom: 0;
+  flex-shrink: 0;
 `;
 
 const HeaderLeft = styled.div`
