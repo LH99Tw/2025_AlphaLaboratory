@@ -29,8 +29,61 @@ export interface BacktestResult {
   cumulative_returns?: Array<{ date: string; value: number }>;
 }
 
-// 💼 포트폴리오 종목
+// 💼 포트폴리오 종목 (실제 데이터베이스 구조)
 export interface PortfolioStock {
+  portfolio_id: string;
+  user_id: string;
+  ticker: string;
+  company_name: string;
+  quantity: number;
+  avg_price: number;
+  current_price: number;
+  sector: string;
+  purchase_date: string;
+  updated_at: string;
+}
+
+// 💼 포트폴리오 응답 타입
+export interface PortfolioResponse {
+  portfolio: PortfolioStock[];
+  total_value?: number;
+}
+
+// 📈 거래 내역 (실제 데이터베이스 구조)
+export interface Transaction {
+  transaction_id: string;
+  user_id: string;
+  transaction_type: '입금' | '출금' | '매수' | '매도' | '배당';
+  ticker?: string;
+  quantity?: number;
+  price?: number;
+  amount: number;
+  transaction_date: string;
+  note?: string;
+}
+
+// 📈 거래 내역 응답 타입
+export interface TransactionResponse {
+  transactions: Transaction[];
+}
+
+// 📊 자산 변동 이력 (실제 데이터베이스 구조)
+export interface AssetHistory {
+  history_id: string;
+  user_id: string;
+  total_assets: number;
+  cash: number;
+  stock_value: number;
+  recorded_at: string;
+}
+
+// 📊 자산 변동 이력 응답 타입
+export interface AssetHistoryResponse {
+  history: AssetHistory[];
+}
+
+// 💼 포트폴리오 종목 (기존 호환용 - 가중치 기반)
+export interface PortfolioStockLegacy {
   ticker: string;
   weight: number;
   alpha_value: number;

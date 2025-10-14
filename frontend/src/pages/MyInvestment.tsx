@@ -14,6 +14,7 @@ import {
   Legend,
   ArcElement,
 } from 'chart.js';
+import { AssetHistory, PortfolioStock } from '../types';
 
 // Chart.js 등록
 ChartJS.register(
@@ -110,41 +111,71 @@ const MyInvestment: React.FC = () => {
     name: '',
     email: ''
   });
+  const [assetHistory, setAssetHistory] = useState<AssetHistory[]>([]);
+  const [portfolioData, setPortfolioData] = useState<PortfolioStock[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // CSV에서 투자 데이터 로드
+  // 실제 투자 데이터 로드
   React.useEffect(() => {
     const fetchInvestmentData = async () => {
       try {
-        const response = await fetch('/api/csv/user/investment', {
+        setLoading(true);
+
+        // 투자 데이터 로드
+        const investmentResponse = await fetch('/api/csv/user/investment', {
           credentials: 'include'
         });
-        
-        if (response.ok) {
-          const data = await response.json();
-          const investmentData = data.investment_data;
-          
+
+        if (investmentResponse.ok) {
+          const investmentData = await investmentResponse.json();
+          const investment = investmentData.investment_data;
+
+          // 포트폴리오 데이터 로드
+          const portfolioResponse = await fetch('/api/csv/user/portfolio', {
+            credentials: 'include'
+          });
+
+          if (portfolioResponse.ok) {
+            const portfolioResult = await portfolioResponse.json();
+            setPortfolioData(portfolioResult.portfolio || []);
+          }
+
+          // 자산 변동 이력 로드
+          const historyResponse = await fetch(`/api/csv/user/asset-history?limit=30`, {
+            credentials: 'include'
+          });
+          if (historyResponse.ok) {
+            const historyResult = await historyResponse.json();
+            setAssetHistory(historyResult.history || []);
+          }
+
           setUserData({
-            totalAssets: parseFloat(investmentData.total_assets) || 0,
-            cash: parseFloat(investmentData.cash) || 0,
-            investments: parseFloat(investmentData.stock_value) || 0,
+            totalAssets: parseFloat(investment.total_assets) || 0,
+            cash: parseFloat(investment.cash) || 0,
+            investments: parseFloat(investment.stock_value) || 0,
             name: '',  // 필요시 user info에서 가져오기
             email: ''  // 필요시 user info에서 가져오기
           });
         }
       } catch (error) {
         console.error('투자 데이터 로드 실패:', error);
+      } finally {
+        setLoading(false);
       }
     };
-    
+
     fetchInvestmentData();
   }, []);
 
-  // 도넛 차트 데이터 (자산 비중)
+  // 도넛 차트 데이터 (실제 자산 비중)
   const doughnutData = {
     labels: ['현금', '투자'],
     datasets: [
       {
-        data: [userData.cash, userData.investments],
+        data: [
+          userData.totalAssets > 0 ? (userData.cash / userData.totalAssets) * 100 : 0,
+          userData.totalAssets > 0 ? (userData.investments / userData.totalAssets) * 100 : 0
+        ],
         backgroundColor: [
           theme.colors.accentGold,
           theme.colors.accentPrimary,
@@ -158,19 +189,39 @@ const MyInvestment: React.FC = () => {
     ],
   };
 
-  // 바 차트 데이터 (월별 자산 변화)
-  const barData = {
-    labels: ['1월', '2월', '3월', '4월', '5월', '6월'],
-    datasets: [
-      {
-        label: '총 자산',
-        data: [8500000, 8800000, 9200000, 9500000, 9800000, 10000000],
-        backgroundColor: theme.colors.accentGold,
-        borderColor: theme.colors.accentPrimary,
-        borderWidth: 1,
-      },
-    ],
-  };
+  // 바 차트 데이터 (실제 자산 변화)
+  const barData = React.useMemo(() => {
+    if (assetHistory.length > 0) {
+      // 실제 자산 변동 이력이 있는 경우
+      const history = assetHistory.slice(0, 6).reverse(); // 최근 6개월만 표시
+      return {
+        labels: history.map(h => new Date(h.recorded_at).toLocaleDateString('ko-KR', { month: 'short' })),
+        datasets: [
+          {
+            label: '총 자산',
+            data: history.map(h => h.total_assets),
+            backgroundColor: theme.colors.accentGold,
+            borderColor: theme.colors.accentPrimary,
+            borderWidth: 1,
+          },
+        ],
+      };
+    } else {
+      // 자산 변동 이력이 없는 경우 더미 데이터 사용
+      return {
+        labels: ['1월', '2월', '3월', '4월', '5월', '6월'],
+        datasets: [
+          {
+            label: '총 자산',
+            data: [8500000, 8800000, 9200000, 9500000, 9800000, userData.totalAssets || 10000000],
+            backgroundColor: theme.colors.accentGold,
+            borderColor: theme.colors.accentPrimary,
+            borderWidth: 1,
+          },
+        ],
+      };
+    }
+  }, [assetHistory, userData.totalAssets]);
 
   const chartOptions = {
     responsive: true,
@@ -191,16 +242,28 @@ const MyInvestment: React.FC = () => {
     }).format(amount);
   };
 
+  if (loading) {
+    return (
+      <MyInvestmentContainer>
+        <LiquidBackground />
+        <PageTitle>내 투자</PageTitle>
+        <div style={{ textAlign: 'center', padding: theme.spacing.xl, color: theme.colors.textSecondary }}>
+          투자 데이터를 불러오는 중...
+        </div>
+      </MyInvestmentContainer>
+    );
+  }
+
   return (
     <MyInvestmentContainer>
       <LiquidBackground />
       <PageTitle>내 투자</PageTitle>
-      
+
       <ContentGrid>
         {/* 자산 현황 */}
         <AssetOverviewCard>
           <CardTitle>자산 현황</CardTitle>
-          
+
           <AssetSummary>
             <AssetLabel>총 자산</AssetLabel>
             <AssetValue>{formatCurrency(userData.totalAssets)}</AssetValue>
@@ -211,8 +274,8 @@ const MyInvestment: React.FC = () => {
           </ChartContainer>
 
           <InfoText>
-            현금: {formatCurrency(userData.cash)} ({((userData.cash / userData.totalAssets) * 100).toFixed(1)}%)<br/>
-            투자: {formatCurrency(userData.investments)} ({((userData.investments / userData.totalAssets) * 100).toFixed(1)}%)
+            현금: {formatCurrency(userData.cash)} ({userData.totalAssets > 0 ? ((userData.cash / userData.totalAssets) * 100).toFixed(1) : 0}%)<br/>
+            투자: {formatCurrency(userData.investments)} ({userData.totalAssets > 0 ? ((userData.investments / userData.totalAssets) * 100).toFixed(1) : 0}%)
           </InfoText>
         </AssetOverviewCard>
       </ContentGrid>

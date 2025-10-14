@@ -13,6 +13,7 @@ import {
 } from 'chart.js';
 import { Doughnut, Bar } from 'react-chartjs-2';
 import { useAuth } from '../contexts/AuthContext';
+import { PortfolioStock, Transaction } from '../types';
 
 // Chart.js 등록
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
@@ -271,29 +272,95 @@ export const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState(0);
   const [period, setPeriod] = useState<'1년' | '30일'>('1년');
-  const [dashboardData] = useState({
-    cash: 23946010,
-    stocks: 32000000,
-    total: 55946010,
+  const [dashboardData, setDashboardData] = useState({
+    cash: 0,
+    stocks: 0,
+    total: 0,
     changes: {
-      cash: -150000,
-      cash_percent: -0.6,
-      stocks: 9256265,
-      stocks_percent: 28.8,
+      cash: 0,
+      cash_percent: 0,
+      stocks: 0,
+      stocks_percent: 0,
     },
   });
+  const [portfolioData, setPortfolioData] = useState<PortfolioStock[]>([]);
+  const [transactionData, setTransactionData] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // 데이터 로드 (나중에 API 연동)
-    // API 호출 시 user.id 사용
+    const loadDashboardData = async () => {
+      if (!user) return;
+
+      try {
+        setLoading(true);
+
+        // 투자 데이터 로드
+        const investmentResponse = await fetch('/api/csv/user/investment', {
+          credentials: 'include'
+        });
+
+        if (investmentResponse.ok) {
+          const investmentData = await investmentResponse.json();
+          const investment = investmentData.investment_data;
+
+          // 포트폴리오 데이터 로드
+          const portfolioResponse = await fetch('/api/csv/user/portfolio', {
+            credentials: 'include'
+          });
+
+          if (portfolioResponse.ok) {
+            const portfolioResult = await portfolioResponse.json();
+            setPortfolioData(portfolioResult.portfolio || []);
+          }
+
+          // 거래 내역 로드
+          const transactionResponse = await fetch('/api/csv/user/transactions', {
+            credentials: 'include'
+          });
+
+          if (transactionResponse.ok) {
+            const transactionResult = await transactionResponse.json();
+            setTransactionData(transactionResult.transactions || []);
+          }
+
+          // 자산 데이터 설정
+          const totalAssets = parseFloat(investment.total_assets) || 0;
+          const cash = parseFloat(investment.cash) || 0;
+          const stocks = parseFloat(investment.stock_value) || 0;
+
+          // 변동 데이터 계산 (실제로는 백엔드에서 계산되어야 함)
+          // 임시로 하드코딩된 변동 데이터 사용
+          setDashboardData({
+            cash,
+            stocks,
+            total: totalAssets,
+            changes: {
+              cash: -150000,
+              cash_percent: -0.6,
+              stocks: 9256265,
+              stocks_percent: 28.8,
+            },
+          });
+        }
+      } catch (error) {
+        console.error('대시보드 데이터 로드 실패:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadDashboardData();
   }, [user]);
 
-  // 도넛 차트 데이터 (흰색과 부드러운 금색 팔레트만 사용)
+  // 도넛 차트 데이터 (실제 데이터 기반)
   const doughnutData = {
     labels: ['주식', '현금'],
     datasets: [
       {
-        data: [57.2, 42.8],
+        data: [
+          dashboardData.total > 0 ? (dashboardData.stocks / dashboardData.total) * 100 : 0,
+          dashboardData.total > 0 ? (dashboardData.cash / dashboardData.total) * 100 : 0
+        ],
         backgroundColor: [
           'rgba(212, 175, 55, 0.8)',
           'rgba(232, 234, 237, 0.6)',
@@ -494,22 +561,37 @@ export const Dashboard: React.FC = () => {
       <ChartCard>
         <ChartTitle>최근 거래 내역</ChartTitle>
         <div style={{ display: 'flex', flexDirection: 'column', gap: theme.spacing.sm }}>
-          {[
-            { date: '2025-02-14', type: '입금', amount: 5000000, description: '급여 입금' },
-            { date: '2025-02-10', type: '출금', amount: -2000000, description: '주식 매수' },
-            { date: '2025-02-05', type: '배당', amount: 1000000, description: '배당금 입금' },
-            { date: '2025-02-01', type: '출금', amount: -500000, description: '생활비' },
-          ].map((transaction, idx) => (
-            <TransactionItem key={idx}>
-              <div>
-                <div style={{ color: theme.colors.textPrimary, fontWeight: 600, fontSize: theme.typography.fontSize.body }}>{transaction.description}</div>
-                <div style={{ color: theme.colors.textSecondary, fontSize: theme.typography.fontSize.caption, marginTop: '4px' }}>{transaction.date}</div>
-              </div>
-              <div style={{ color: transaction.amount > 0 ? theme.colors.accentGold : theme.colors.textSecondary, fontWeight: 600, fontSize: theme.typography.fontSize.h3 }}>
-                {transaction.amount > 0 ? '+' : ''}{transaction.amount.toLocaleString()} 원
-              </div>
-            </TransactionItem>
-          ))}
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: theme.spacing.xl, color: theme.colors.textSecondary }}>
+              거래 내역을 불러오는 중...
+            </div>
+          ) : transactionData.length > 0 ? (
+            transactionData.slice(0, 5).map((transaction, idx) => (
+              <TransactionItem key={idx}>
+                <div>
+                  <div style={{ color: theme.colors.textPrimary, fontWeight: 600, fontSize: theme.typography.fontSize.body }}>
+                    {transaction.transaction_type === '입금' ? '입금' :
+                     transaction.transaction_type === '출금' ? '출금' :
+                     transaction.transaction_type === '배당' ? '배당' : '거래'}
+                  </div>
+                  <div style={{ color: theme.colors.textSecondary, fontSize: theme.typography.fontSize.caption, marginTop: '4px' }}>
+                    {new Date(transaction.transaction_date).toLocaleDateString()}
+                  </div>
+                </div>
+                <div style={{
+                  color: transaction.amount > 0 ? theme.colors.accentGold : theme.colors.textSecondary,
+                  fontWeight: 600,
+                  fontSize: theme.typography.fontSize.h3
+                }}>
+                  {transaction.amount > 0 ? '+' : ''}{Number(transaction.amount).toLocaleString()} 원
+                </div>
+              </TransactionItem>
+            ))
+          ) : (
+            <div style={{ textAlign: 'center', padding: theme.spacing.xl, color: theme.colors.textSecondary }}>
+              거래 내역이 없습니다
+            </div>
+          )}
         </div>
       </ChartCard>
     </>
@@ -527,57 +609,91 @@ export const Dashboard: React.FC = () => {
             <span style={{ textAlign: 'right' }}>평가금액</span>
             <span style={{ textAlign: 'right' }}>수익률</span>
           </StockListHeader>
-          {[
-            { ticker: 'AAPL', name: 'Apple Inc.', quantity: 50, avgPrice: 150000, currentPrice: 180000 },
-            { ticker: 'MSFT', name: 'Microsoft Corp.', quantity: 30, avgPrice: 300000, currentPrice: 350000 },
-            { ticker: 'GOOGL', name: 'Alphabet Inc.', quantity: 20, avgPrice: 120000, currentPrice: 140000 },
-            { ticker: 'TSLA', name: 'Tesla Inc.', quantity: 15, avgPrice: 200000, currentPrice: 190000 },
-          ].map((stock, idx) => {
-            const totalValue = stock.quantity * stock.currentPrice;
-            const profitLoss = ((stock.currentPrice - stock.avgPrice) / stock.avgPrice) * 100;
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: theme.spacing.xl, color: theme.colors.textSecondary }}>
+              주식 데이터를 불러오는 중...
+            </div>
+          ) : portfolioData.length > 0 ? (
+            portfolioData.map((stock, idx) => {
+              const totalValue = stock.quantity * stock.current_price;
+              const profitLoss = ((stock.current_price - stock.avg_price) / stock.avg_price) * 100;
 
-  return (
-              <StockListItem key={idx}>
-      <div>
-                  <div style={{ color: theme.colors.textPrimary, fontWeight: 600, fontSize: theme.typography.fontSize.body }}>{stock.name}</div>
-                  <div style={{ color: theme.colors.textSecondary, fontSize: theme.typography.fontSize.caption }}>{stock.ticker}</div>
-                </div>
-                <span style={{ textAlign: 'right', color: theme.colors.textPrimary, fontSize: theme.typography.fontSize.body }}>{stock.quantity}주</span>
-                <span style={{ textAlign: 'right', color: theme.colors.textPrimary, fontSize: theme.typography.fontSize.body }}>{stock.avgPrice.toLocaleString()}원</span>
-                <span style={{ textAlign: 'right', color: theme.colors.textPrimary, fontWeight: 600, fontSize: theme.typography.fontSize.body }}>{totalValue.toLocaleString()}원</span>
-                <span style={{ textAlign: 'right', color: profitLoss >= 0 ? theme.colors.accentGold : theme.colors.textSecondary, fontWeight: 600, fontSize: theme.typography.fontSize.body }}>
-                  {profitLoss >= 0 ? '+' : ''}{profitLoss.toFixed(2)}%
-                </span>
-              </StockListItem>
-            );
-          })}
-      </div>
+              return (
+                <StockListItem key={idx}>
+                  <div>
+                    <div style={{ color: theme.colors.textPrimary, fontWeight: 600, fontSize: theme.typography.fontSize.body }}>{stock.company_name}</div>
+                    <div style={{ color: theme.colors.textSecondary, fontSize: theme.typography.fontSize.caption }}>{stock.ticker}</div>
+                  </div>
+                  <span style={{ textAlign: 'right', color: theme.colors.textPrimary, fontSize: theme.typography.fontSize.body }}>{stock.quantity}주</span>
+                  <span style={{ textAlign: 'right', color: theme.colors.textPrimary, fontSize: theme.typography.fontSize.body }}>{Number(stock.avg_price).toLocaleString()}원</span>
+                  <span style={{ textAlign: 'right', color: theme.colors.textPrimary, fontWeight: 600, fontSize: theme.typography.fontSize.body }}>{totalValue.toLocaleString()}원</span>
+                  <span style={{ textAlign: 'right', color: profitLoss >= 0 ? theme.colors.accentGold : theme.colors.textSecondary, fontWeight: 600, fontSize: theme.typography.fontSize.body }}>
+                    {profitLoss >= 0 ? '+' : ''}{profitLoss.toFixed(2)}%
+                  </span>
+                </StockListItem>
+              );
+            })
+          ) : (
+            <div style={{ textAlign: 'center', padding: theme.spacing.xl, color: theme.colors.textSecondary }}>
+              보유 주식이 없습니다
+            </div>
+          )}
+        </div>
       </ChartCard>
 
       <ChartsContainer>
         <ChartCard>
           <ChartTitle>섹터별 분포</ChartTitle>
           <DoughnutWrapper>
-            <Doughnut 
-              data={{
-                labels: ['기술', '금융', '헬스케어', '에너지'],
-                datasets: [{
-                  data: [45, 25, 20, 10],
-                  backgroundColor: [
-                    'rgba(212, 175, 55, 0.9)',
-                    'rgba(184, 134, 11, 0.7)',
-                    'rgba(232, 234, 237, 0.6)',
-                    'rgba(154, 160, 166, 0.5)',
-                  ],
-                  borderColor: [
-                    'rgba(184, 134, 11, 1)',
-                    'rgba(160, 120, 8, 1)',
-                    'rgba(255, 255, 255, 0.3)',
-                    'rgba(95, 99, 104, 0.5)',
-                  ],
-                  borderWidth: 2,
-                }],
-              }}
+            <Doughnut
+              data={(() => {
+                if (portfolioData.length === 0) {
+                  return {
+                    labels: ['데이터 없음'],
+                    datasets: [{
+                      data: [100],
+                      backgroundColor: ['rgba(154, 160, 166, 0.5)'],
+                      borderColor: ['rgba(95, 99, 104, 0.5)'],
+                      borderWidth: 2,
+                    }],
+                  };
+                }
+
+                // 섹터별 데이터 집계
+                const sectorData = portfolioData.reduce<Record<string, number>>((acc, stock) => {
+                  const sector = stock.sector || '기타';
+                  const value = stock.quantity * stock.current_price;
+                  acc[sector] = (acc[sector] ?? 0) + value;
+                  return acc;
+                }, {} as Record<string, number>);
+
+                const totalValue = Object.values(sectorData).reduce((sum, value) => sum + value, 0);
+                const sectors = Object.keys(sectorData);
+                const safeTotalValue = totalValue === 0 ? 1 : totalValue;
+                const percentages = sectors.map(sector => (sectorData[sector] / safeTotalValue) * 100);
+
+                return {
+                  labels: sectors,
+                  datasets: [{
+                    data: percentages,
+                    backgroundColor: [
+                      'rgba(212, 175, 55, 0.9)',
+                      'rgba(184, 134, 11, 0.7)',
+                      'rgba(232, 234, 237, 0.6)',
+                      'rgba(154, 160, 166, 0.5)',
+                      'rgba(107, 114, 128, 0.4)',
+                    ].slice(0, sectors.length),
+                    borderColor: [
+                      'rgba(184, 134, 11, 1)',
+                      'rgba(160, 120, 8, 1)',
+                      'rgba(255, 255, 255, 0.3)',
+                      'rgba(95, 99, 104, 0.5)',
+                      'rgba(75, 85, 99, 0.5)',
+                    ].slice(0, sectors.length),
+                    borderWidth: 2,
+                  }],
+                };
+              })()}
               options={{
                 responsive: true,
                 maintainAspectRatio: true,
@@ -608,26 +724,40 @@ export const Dashboard: React.FC = () => {
         <ChartCard>
           <ChartTitle>최근 매매 내역</ChartTitle>
           <div style={{ display: 'flex', flexDirection: 'column', gap: theme.spacing.sm }}>
-            {[
-              { date: '2025-02-14', type: '매수', ticker: 'AAPL', quantity: 10, price: 180000 },
-              { date: '2025-02-10', type: '매도', ticker: 'TSLA', quantity: 5, price: 190000 },
-              { date: '2025-02-05', type: '매수', ticker: 'MSFT', quantity: 5, price: 350000 },
-            ].map((trade, idx) => (
-              <TransactionItem key={idx}>
-                <div>
-                  <div style={{ color: theme.colors.textPrimary, fontWeight: 600, fontSize: theme.typography.fontSize.body }}>{trade.ticker} {trade.type}</div>
-                  <div style={{ color: theme.colors.textSecondary, fontSize: theme.typography.fontSize.caption }}>{trade.date}</div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ color: trade.type === '매수' ? theme.colors.textSecondary : theme.colors.accentGold, fontWeight: 600, fontSize: theme.typography.fontSize.body }}>
-                    {trade.quantity}주 @ {trade.price.toLocaleString()}원
-                  </div>
-                  <div style={{ color: theme.colors.textSecondary, fontSize: theme.typography.fontSize.caption }}>
-                    {(trade.quantity * trade.price).toLocaleString()}원
-                  </div>
-                </div>
-              </TransactionItem>
-            ))}
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: theme.spacing.xl, color: theme.colors.textSecondary }}>
+                매매 내역을 불러오는 중...
+              </div>
+            ) : portfolioData.length > 0 ? (
+              // 포트폴리오 구매 날짜를 매매 내역으로 표시
+              portfolioData
+                .sort((a, b) => new Date(b.purchase_date).getTime() - new Date(a.purchase_date).getTime())
+                .slice(0, 5)
+                .map((stock, idx) => (
+                  <TransactionItem key={idx}>
+                    <div>
+                      <div style={{ color: theme.colors.textPrimary, fontWeight: 600, fontSize: theme.typography.fontSize.body }}>
+                        {stock.company_name} 매수
+                      </div>
+                      <div style={{ color: theme.colors.textSecondary, fontSize: theme.typography.fontSize.caption }}>
+                        {new Date(stock.purchase_date).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ color: theme.colors.accentGold, fontWeight: 600, fontSize: theme.typography.fontSize.body }}>
+                        {stock.quantity}주 @ {Number(stock.avg_price).toLocaleString()}원
+                      </div>
+                      <div style={{ color: theme.colors.textSecondary, fontSize: theme.typography.fontSize.caption }}>
+                        {(stock.quantity * stock.avg_price).toLocaleString()}원
+                      </div>
+                    </div>
+                  </TransactionItem>
+                ))
+            ) : (
+              <div style={{ textAlign: 'center', padding: theme.spacing.xl, color: theme.colors.textSecondary }}>
+                매매 내역이 없습니다
+              </div>
+            )}
           </div>
         </ChartCard>
       </ChartsContainer>

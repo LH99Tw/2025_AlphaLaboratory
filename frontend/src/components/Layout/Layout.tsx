@@ -84,17 +84,14 @@ const HeaderRight = styled.div`
 const UserInfo = styled.button`
   display: flex;
   align-items: center;
-  gap: ${theme.spacing.sm};
-  padding: ${theme.spacing.sm} ${theme.spacing.md};
-  background: ${theme.colors.liquidGlass};
-  border: 1px solid ${theme.colors.border};
-  border-radius: 20px;
+  gap: ${theme.spacing.md};
+  padding: 0;
+  background: transparent;
+  border: none;
   cursor: pointer;
   transition: all 0.3s;
-  
+
   &:hover {
-    background: ${theme.colors.liquidGlassHover};
-    border-color: ${theme.colors.borderHover};
     transform: scale(1.02);
   }
 `;
@@ -147,7 +144,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { user, logout } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [userProfile, setUserProfile] = useState({
-    nickname: user?.username || '사용자',
+    username: user?.username || '사용자',
     emoji: '😀'
   });
 
@@ -164,7 +161,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           const userInfo = data.user_info;
           
           setUserProfile({
-            nickname: userInfo.username || '사용자',
+            username: userInfo.username || '사용자',
             emoji: userInfo.profile_emoji || '😀'
           });
         }
@@ -190,7 +187,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
             </HeaderLeft>
             <HeaderRight>
               <UserInfo onClick={() => navigate('/profile')}>
-                <UserNickname>{userProfile.nickname}</UserNickname>
+                <UserNickname>{userProfile.username}</UserNickname>
                 <ProfileEmoji>{userProfile.emoji}</ProfileEmoji>
               </UserInfo>
               <LogoutButton onClick={logout} title="로그아웃">

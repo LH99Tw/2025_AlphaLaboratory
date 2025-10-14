@@ -2341,10 +2341,8 @@ def csv_update_user_profile():
         if csv_manager is None:
             return jsonify({'error': 'CSV 매니저가 초기화되지 않았습니다'}), 500
         
-        # 업데이트할 필드만 딕셔너리로 전달
+        # 업데이트할 필드만 딕셔너리로 전달 (username은 변경 불가)
         update_fields = {}
-        if 'nickname' in data:
-            update_fields['username'] = data['nickname']
         if 'name' in data:
             update_fields['name'] = data['name']
         if 'email' in data:
@@ -2402,6 +2400,29 @@ def csv_change_user_password():
 def not_found(error):
     return jsonify({'error': '요청한 엔드포인트를 찾을 수 없습니다'}), 404
 
+@app.route('/api/csv/user/asset-history', methods=['GET'])
+def csv_get_asset_history():
+    """CSV 기반 자산 변동 이력 조회"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+
+        if csv_manager is None:
+            return jsonify({'error': 'CSV 매니저가 초기화되지 않았습니다'}), 500
+
+        limit = int(request.args.get('limit', 30))
+        history = csv_manager.get_asset_history(user_id, limit)
+
+        return jsonify({
+            'success': True,
+            'history': history
+        })
+
+    except Exception as e:
+        logger.error(f"CSV 자산 이력 조회 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.errorhandler(500)
 def internal_error(error):
     return jsonify({'error': '서버 내부 오류가 발생했습니다'}), 500
@@ -2415,7 +2436,7 @@ if __name__ == '__main__':
     # 서버 실행
     app.run(
         host='0.0.0.0',
-        port=5000,  # 포트 변경
+        port=5001,  # macOS AirPlay Receiver 충돌 방지
         debug=True,
         threaded=True
     )

@@ -146,12 +146,12 @@ const Profile: React.FC = () => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   
   const [profileData, setProfileData] = useState({
-    nickname: user?.username || '사용자',
+    username: user?.username || '사용자',
     email: user?.email || '',
     name: user?.name || '',
     profileEmoji: '😀'
   });
-  
+
   const [editData, setEditData] = useState(profileData);
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
@@ -172,13 +172,13 @@ const Profile: React.FC = () => {
           const userInfo = data.user_info;
           
           setProfileData({
-            nickname: userInfo.username || '사용자',
+            username: userInfo.username || '사용자',
             email: userInfo.email || '',
             name: userInfo.name || '',
             profileEmoji: userInfo.profile_emoji || '😀'
           });
           setEditData({
-            nickname: userInfo.username || '사용자',
+            username: userInfo.username || '사용자',
             email: userInfo.email || '',
             name: userInfo.name || '',
             profileEmoji: userInfo.profile_emoji || '😀'
@@ -201,7 +201,6 @@ const Profile: React.FC = () => {
         },
         credentials: 'include',
         body: JSON.stringify({
-          nickname: editData.nickname,
           name: editData.name,
           email: editData.email,
           profile_emoji: editData.profileEmoji
@@ -212,7 +211,12 @@ const Profile: React.FC = () => {
         setProfileData(editData);
         setIsEditing(false);
         setShowEmojiPicker(false);
+        
+        // 성공 메시지 표시
         alert('프로필이 성공적으로 업데이트되었습니다');
+        
+        // 헤더의 프로필 정보도 즉시 반영되도록 새로고침
+        window.location.reload();
       } else {
         const data = await response.json();
         alert(data.error || '프로필 업데이트에 실패했습니다');
@@ -300,7 +304,7 @@ const Profile: React.FC = () => {
             </EmojiSelector>
           )}
           
-          <ProfileName>{profileData.nickname}</ProfileName>
+          <ProfileName>{profileData.username}</ProfileName>
           <ProfileEmail>{profileData.email}</ProfileEmail>
         </ProfileSidebar>
 
@@ -312,14 +316,14 @@ const Profile: React.FC = () => {
             {!isEditing ? (
               <>
                 <FormGroup>
-                  <Label>닉네임</Label>
+                  <Label>아이디</Label>
                   <div style={{ 
                     padding: theme.spacing.md, 
                     background: theme.colors.liquidGlass,
                     borderRadius: theme.borderRadius.md,
                     border: `1px solid ${theme.colors.liquidGlassBorder}`
                   }}>
-                    {profileData.nickname}
+                    {profileData.username}
                   </div>
                 </FormGroup>
 
@@ -356,12 +360,17 @@ const Profile: React.FC = () => {
             ) : (
               <>
                 <FormGroup>
-                  <Label>닉네임</Label>
-                  <GlassInput
-                    type="text"
-                    value={editData.nickname}
-                    onChange={(e) => setEditData({ ...editData, nickname: e.target.value })}
-                  />
+                  <Label>아이디</Label>
+                  <div style={{
+                    padding: '12px 16px',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    color: 'rgba(255, 255, 255, 0.6)',
+                    fontSize: '14px'
+                  }}>
+                    {editData.username} (변경 불가)
+                  </div>
                 </FormGroup>
 
                 <FormGroup>

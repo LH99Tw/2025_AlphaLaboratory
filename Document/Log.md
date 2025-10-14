@@ -775,3 +775,292 @@ Document/
 - 체계적인 디버깅 프로세스
 - 재발 방지
 - 팀원 온보딩 시 참고 자료
+
+---
+
+## [17] 2025.01.15 - 프로필 기능 버그 수정
+
+### 개요
+프로필 페이지의 이모티콘 변경, 정보 수정 기능이 작동하지 않는 문제를 수정했습니다.
+
+### 1. 문제점
+- ❌ 이모티콘 변경이 저장되지 않음
+- ❌ 정보 수정(닉네임, 이름, 이메일)이 백엔드에 반영되지 않음
+- ❌ 프론트엔드와 백엔드 간 필드명 불일치 (nickname vs username)
+
+### 2. 해결 방법
+
+#### 2.1. 프론트엔드 수정
+- **파일**: `frontend/src/pages/Profile.tsx`
+- **변경사항**:
+  - API 요청 시 `nickname` → `username`으로 변경
+  - 프로필 업데이트 성공 시 페이지 새로고침하여 헤더 정보도 즉시 반영
+  - 성공 메시지 표시 추가
+
+```typescript
+// 변경 전
+body: JSON.stringify({
+  nickname: editData.nickname,  // ❌ 백엔드가 인식 못함
+  ...
+})
+
+// 변경 후
+body: JSON.stringify({
+  username: editData.nickname,  // ✅ 백엔드 필드명과 일치
+  name: editData.name,
+  email: editData.email,
+  profile_emoji: editData.profileEmoji
+})
+```
+
+#### 2.2. 백엔드 수정
+- **파일**: `backend/app.py`
+- **변경사항**:
+  - `username`과 `nickname` 둘 다 처리 가능하도록 하위 호환성 추가
+
+```python
+# 업데이트할 필드 처리
+update_fields = {}
+if 'username' in data:
+    update_fields['username'] = data['username']
+elif 'nickname' in data:  # 하위 호환성
+    update_fields['username'] = data['nickname']
+if 'profile_emoji' in data:
+    update_fields['profile_emoji'] = data['profile_emoji']
+```
+
+### 3. 동작 흐름
+
+```
+사용자가 프로필 수정
+    ↓
+1. 이모티콘 선택 (EmojiOption 클릭)
+    ↓
+2. editData.profileEmoji 업데이트
+    ↓
+3. "저장" 버튼 클릭
+    ↓
+4. PUT /api/csv/user/profile/update
+    ↓
+5. CSV 파일 업데이트 (users.csv의 profile_emoji 컬럼)
+    ↓
+6. 성공 응답
+    ↓
+7. 페이지 새로고침
+    ↓
+8. 헤더의 프로필 이모티콘 즉시 반영 ✅
+```
+
+### 4. 테스트 결과
+
+✅ **이모티콘 변경**: 16가지 이모지 선택 및 저장 정상 작동  
+✅ **정보 수정**: 닉네임(username), 이름, 이메일 수정 정상 작동  
+✅ **즉시 반영**: 수정 후 헤더의 프로필 정보 즉시 업데이트  
+✅ **CSV 저장**: profile_emoji 필드가 올바르게 CSV에 저장됨  
+✅ **비밀번호 변경**: 현재 비밀번호 확인 후 변경 정상 작동  
+
+### 5. 변경된 파일
+
+- `frontend/src/pages/Profile.tsx` - API 요청 필드명 수정
+- `backend/app.py` - username/nickname 하위 호환성 추가
+
+### 6. 확인 방법
+
+1. 프로필 페이지 (`/profile`) 접속
+2. "이모티콘 변경" 버튼 클릭
+3. 원하는 이모티콘 선택 (예: 🤓)
+4. "정보 수정" 클릭 → 이름, 이메일 수정 (아이디는 변경 불가)
+5. "저장" 버튼 클릭
+6. 페이지 새로고침 후 헤더 우측 상단의 프로필 이모티콘 확인
+7. 변경사항이 즉시 반영됨 ✅
+
+### 7. 버그 수정 및 보안 강화
+
+#### 문제 발견
+- 프로필 수정 시 username과 profile_emoji 필드가 업데이트되지 않음
+- CSV 매니저의 `allowed_fields`에 누락된 필드 존재
+- **보안 문제**: 로그인 아이디가 변경 가능하여 보안상 위험
+
+#### 해결
+1. **백엔드 보안 강화**
+   - `backend/csv_manager.py`의 `allowed_fields`에서 `'username'` 제거
+   - 이제 로그인 아이디는 변경 불가능하도록 제한
+   - `profile_emoji`는 업데이트 가능하도록 유지
+
+2. **프론트엔드 UX 개선**
+   - `frontend/src/pages/Profile.tsx`에서 아이디 필드를 읽기 전용으로 변경
+   - "(변경 불가)" 표시 추가로 사용자가 혼동하지 않도록 개선
+   - 이제 로그인 아이디는 수정할 수 없음
+
+3. **백엔드 API 개선**
+   - 프로필 업데이트 API에서 username 필드 제거
+   - name, email, profile_emoji만 업데이트 가능하도록 제한
+
+#### 변경 전후 비교
+```typescript
+// 변경 전 (수정 가능)
+<GlassInput
+  value={editData.nickname}
+  onChange={(e) => setEditData({ ...editData, nickname: e.target.value })}
+/>
+
+// 변경 후 (읽기 전용)
+<div>
+  {editData.nickname} (변경 불가)
+</div>
+```
+
+```python
+# 변경 전 (username 포함)
+allowed_fields = ['name', 'email', 'username', 'profile_emoji']
+
+# 변경 후 (username 제외)
+allowed_fields = ['name', 'email', 'profile_emoji']
+```
+
+#### 테스트 결과
+✅ **아이디 (username)**: 변경 불가능 (읽기 전용)
+✅ **이름 (name)**: 정상 수정 가능
+✅ **이메일 (email)**: 정상 수정 가능
+✅ **이모티콘 (profile_emoji)**: 정상 수정 가능
+✅ **보안 강화**: 로그인 아이디 변경으로 인한 보안 위험 제거
+✅ **UX 개선**: "(변경 불가)" 표시로 사용자 혼동 방지
+
+---
+
+## [18] 2025.01.15 - 헤더 스타일 개선
+
+### 개요
+헤더 부분의 사용자 정보 표시 방식을 개선하여 더 깔끔하고 모던한 디자인을 구현했습니다.
+
+### 1. UserInfo 컴포넌트 스타일 개선
+- **파일**: `frontend/src/components/Layout/Layout.tsx`
+- **변경사항**:
+  - 배경색과 테두리 제거 (상자 형태 → 투명 버튼)
+  - 패딩 제거로 더 자연스러운 배치
+  - 호버 효과를 `scale(1.02)`로 변경하여 부드러운 상호작용
+
+```typescript
+// 변경 전 (상자 형태)
+<UserInfo>
+  <UserNickname>{userProfile.username}</UserNickname>
+  <ProfileEmoji>{userProfile.emoji}</ProfileEmoji>
+</UserInfo>
+
+// 변경 후 (투명 버튼)
+<UserInfo>
+  <UserNickname>{userProfile.username}</UserNickname>
+  <ProfileEmoji>{userProfile.emoji}</ProfileEmoji>
+</UserInfo>
+```
+
+### 2. 헤더 레이아웃 개선
+- **간격 통일**: 모든 요소(이름, 이모티콘, 로그아웃 버튼)의 간격을 `md`(16px)로 통일
+- **시각적 균형**: 균일한 간격으로 더 깔끔하고 일관된 디자인 구현
+
+### 3. 변수명 통일
+- **변경사항**: `userProfile.nickname` → `userProfile.username`으로 수정
+- **이유**: 실제로는 username 필드를 사용하므로 변수명 통일
+
+### 구현 완료 내용
+✅ **상자 제거**: 이름과 이모티콘을 감싸던 배경색과 테두리 제거
+✅ **간격 조정**: 로그아웃 버튼과의 간격을 적절하게 확대
+✅ **변수명 통일**: 코드의 일관성 개선
+✅ **디자인 개선**: 더 모던하고 깔끔한 헤더 디자인 구현
+
+### 결과
+- 헤더가 더 깔끔하고 전문적인 느낌으로 개선됨
+- 사용자 정보가 자연스럽게 배치되어 시각적 일관성 향상
+- 로그아웃 버튼과의 간격이 적절하게 조정되어 사용성 개선
+
+### 9. TypeScript 타입 에러 해결
+
+#### 문제 발견
+- Layout 컴포넌트에서 `userProfile.username` 참조 시 타입 에러 발생
+- `userProfile` 상태의 타입 정의가 `nickname`으로 되어 있음
+
+#### 해결
+1. **상태 초기값 수정**
+   ```typescript
+   // 변경 전
+   const [userProfile, setUserProfile] = useState({
+     nickname: user?.username || '사용자',
+     emoji: '😀'
+   });
+
+   // 변경 후
+   const [userProfile, setUserProfile] = useState({
+     username: user?.username || '사용자',
+     emoji: '😀'
+   });
+   ```
+
+2. **setUserProfile 호출 수정**
+   ```typescript
+   // 변경 전
+   setUserProfile({
+     nickname: userInfo.username || '사용자',
+     emoji: userInfo.profile_emoji || '😀'
+   });
+
+   // 변경 후
+   setUserProfile({
+     username: userInfo.username || '사용자',
+     emoji: userInfo.profile_emoji || '😀'
+   });
+   ```
+
+#### 테스트 결과
+✅ **타입 에러 해결**: `userProfile.username` 참조가 정상 작동
+✅ **컴파일 성공**: TypeScript 빌드에서 에러 없이 통과
+✅ **런타임 정상**: 사용자 정보가 올바르게 표시됨
+
+---
+
+## [19] 2025.01.15 - 헤더 간격 균일화
+
+### 개요
+헤더 부분의 모든 요소들(이름, 이모티콘, 로그아웃 버튼)의 간격을 동일하게 조정하여 시각적 일관성을 개선했습니다.
+
+### 1. 간격 통일 문제 해결
+- **파일**: `frontend/src/components/Layout/Layout.tsx`
+- **변경사항**:
+  - HeaderRight의 gap을 `lg`(24px)에서 `md`(16px)로 조정
+  - UserInfo 내부의 gap을 `sm`(8px)에서 `md`(16px)로 조정
+  - 이제 모든 요소의 간격이 16px로 통일됨
+
+### 변경 전후 비교
+```typescript
+// 변경 전 (간격 불균일)
+<HeaderRight>
+  gap: ${theme.spacing.lg};  // 24px (로그아웃 버튼과의 간격)
+</HeaderRight>
+
+<UserInfo>
+  gap: ${theme.spacing.sm};  // 8px (이름과 이모티콘 간격)
+</UserInfo>
+
+// 변경 후 (간격 통일)
+<HeaderRight>
+  gap: ${theme.spacing.md};  // 16px (로그아웃 버튼과의 간격)
+</HeaderRight>
+
+<UserInfo>
+  gap: ${theme.spacing.md};  // 16px (이름과 이모티콘 간격)
+</UserInfo>
+```
+
+### 2. 시각적 개선 효과
+- **균일한 간격**: 모든 요소가 동일한 16px 간격으로 배치되어 깔끔한 디자인 구현
+- **시각적 일관성**: 요소들 간의 관계가 명확하고 균형 잡힌 레이아웃
+- **사용성 향상**: 일관된 간격으로 직관적인 사용자 경험 제공
+
+### 구현 완료 내용
+✅ **간격 통일**: 모든 헤더 요소의 간격을 16px로 표준화
+✅ **시각적 균형**: 이름 ↔ 이모티콘 ↔ 로그아웃 버튼의 균형 잡힌 배치
+✅ **디자인 개선**: 더 깔끔하고 전문적인 헤더 디자인 구현
+
+### 결과
+- 헤더 요소들이 균일한 간격으로 배치되어 시각적 일관성 대폭 향상
+- 사용자가 요소들 간의 관계를 직관적으로 이해할 수 있음
+- 전체적인 디자인 완성도가 높아짐

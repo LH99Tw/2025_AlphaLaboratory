@@ -229,8 +229,8 @@ class CSVManager:
             if user_id not in users_df['user_id'].values:
                 return False
             
-            # 업데이트 가능한 필드들
-            allowed_fields = ['name', 'email']
+            # 업데이트 가능한 필드들 (username은 제외 - 로그인 아이디는 변경 불가)
+            allowed_fields = ['name', 'email', 'profile_emoji']
             
             for field, value in kwargs.items():
                 if field in allowed_fields:
