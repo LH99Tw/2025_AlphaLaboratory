@@ -45,12 +45,19 @@ class CSVManager:
                 'email',            # 이메일
                 'password_hash',    # 비밀번호 해시
                 'name',             # 실명
+                'profile_emoji',    # 프로필 이모티콘
                 'created_at',       # 생성일시
                 'last_login',       # 마지막 로그인
                 'is_active',        # 활성 상태
                 'user_type'         # 사용자 타입 (admin, user)
             ])
             users_df.to_csv(self.users_file, index=False, encoding='utf-8-sig')
+        else:
+            # 기존 파일에 profile_emoji 컬럼이 없으면 추가
+            users_df = pd.read_csv(self.users_file, encoding='utf-8-sig')
+            if 'profile_emoji' not in users_df.columns:
+                users_df['profile_emoji'] = '😀'  # 기본값
+                users_df.to_csv(self.users_file, index=False, encoding='utf-8-sig')
         
         # investments.csv - 투자 현황
         if not os.path.exists(self.investments_file):
@@ -125,7 +132,7 @@ class CSVManager:
     
     # ==================== 사용자 관리 ====================
     
-    def create_user(self, username: str, email: str, password: str, name: str = "", user_type: str = "user") -> str:
+    def create_user(self, username: str, email: str, password: str, name: str = "", user_type: str = "user", profile_emoji: str = "😀") -> str:
         """새 사용자를 생성합니다."""
         try:
             users_df = pd.read_csv(self.users_file, encoding='utf-8-sig')
@@ -145,6 +152,7 @@ class CSVManager:
                 'email': email,
                 'password_hash': self._hash_password(password),
                 'name': name or username,
+                'profile_emoji': profile_emoji,
                 'created_at': datetime.now().isoformat(),
                 'last_login': None,
                 'is_active': True,

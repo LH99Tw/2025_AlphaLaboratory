@@ -22,7 +22,7 @@ def create_csv_files():
     if not os.path.exists(users_file):
         with open(users_file, 'w', newline='', encoding='utf-8-sig') as f:
             writer = csv.writer(f)
-            writer.writerow(['user_id', 'username', 'email', 'password_hash', 'name', 'created_at', 'last_login', 'is_active', 'user_type'])
+            writer.writerow(['user_id', 'username', 'email', 'password_hash', 'name', 'profile_emoji', 'created_at', 'last_login', 'is_active', 'user_type'])
     
     # 2. investments.csv
     investments_file = os.path.join(data_dir, "investments.csv")
@@ -87,6 +87,7 @@ def create_admin_account():
             'admin@smartanalytics.com',
             hash_password('admin123'),
             '관리자',
+            '😀',  # profile_emoji
             datetime.now().isoformat(),
             None,
             'True',

@@ -2163,6 +2163,19 @@ def csv_user_login():
         logger.error(f"CSV 사용자 로그인 오류: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/csv/user/logout', methods=['POST'])
+def csv_user_logout():
+    """CSV 기반 사용자 로그아웃"""
+    try:
+        session.clear()
+        return jsonify({
+            'success': True,
+            'message': '로그아웃되었습니다'
+        })
+    except Exception as e:
+        logger.error(f"CSV 사용자 로그아웃 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/csv/user/info', methods=['GET'])
 def csv_get_user_info():
     """CSV 기반 사용자 정보 조회"""
@@ -2313,6 +2326,76 @@ def csv_save_user_alpha():
         
     except Exception as e:
         logger.error(f"CSV 알파 저장 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/csv/user/profile/update', methods=['PUT'])
+def csv_update_user_profile():
+    """CSV 기반 사용자 프로필 업데이트"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        data = request.get_json()
+        
+        if csv_manager is None:
+            return jsonify({'error': 'CSV 매니저가 초기화되지 않았습니다'}), 500
+        
+        # 업데이트할 필드만 딕셔너리로 전달
+        update_fields = {}
+        if 'nickname' in data:
+            update_fields['username'] = data['nickname']
+        if 'name' in data:
+            update_fields['name'] = data['name']
+        if 'email' in data:
+            update_fields['email'] = data['email']
+        if 'profile_emoji' in data:
+            update_fields['profile_emoji'] = data['profile_emoji']
+        
+        success = csv_manager.update_user_info(user_id, **update_fields)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': '프로필이 업데이트되었습니다'
+            })
+        else:
+            return jsonify({'error': '프로필 업데이트에 실패했습니다'}), 500
+        
+    except Exception as e:
+        logger.error(f"CSV 프로필 업데이트 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/csv/user/password/change', methods=['POST'])
+def csv_change_user_password():
+    """CSV 기반 비밀번호 변경"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        data = request.get_json()
+        current_password = data.get('current_password', '')
+        new_password = data.get('new_password', '')
+        
+        if not current_password or not new_password:
+            return jsonify({'error': '현재 비밀번호와 새 비밀번호는 필수입니다'}), 400
+        
+        if csv_manager is None:
+            return jsonify({'error': 'CSV 매니저가 초기화되지 않았습니다'}), 500
+        
+        success = csv_manager.change_password(user_id, current_password, new_password)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': '비밀번호가 변경되었습니다'
+            })
+        else:
+            return jsonify({'error': '현재 비밀번호가 일치하지 않습니다'}), 401
+        
+    except Exception as e:
+        logger.error(f"CSV 비밀번호 변경 오류: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.errorhandler(404)

@@ -42,6 +42,7 @@ export interface User {
   id: string;
   username: string;
   email?: string;
+  name?: string;
 }
 
 // 📊 대시보드 메트릭

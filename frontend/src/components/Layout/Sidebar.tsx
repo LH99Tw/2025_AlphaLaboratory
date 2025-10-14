@@ -198,6 +198,40 @@ const SectionTitle = styled.div<{ $collapsed: boolean }>`
   transition: opacity 0.3s;
 `;
 
+const BottomButtonContainer = styled.div<{ $collapsed: boolean }>`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: ${props => props.$collapsed ? '12px' : 'auto'};
+  align-self: ${props => props.$collapsed ? 'center' : 'flex-start'};
+  width: ${props => props.$collapsed ? 'auto' : '100%'};
+`;
+
+const ProfileButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: ${theme.colors.liquidGlass};
+  border: 1px solid ${theme.colors.border};
+  color: ${theme.colors.textSecondary};
+  cursor: pointer;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  
+  &:hover {
+    background: ${theme.colors.liquidGlassHover};
+    color: ${theme.colors.accentPrimary};
+    border-color: ${theme.colors.accentPrimary};
+    transform: scale(1.05);
+  }
+  
+  .anticon {
+    font-size: 16px;
+  }
+`;
+
 const CollapseButton = styled.button<{ $collapsed: boolean }>`
   display: flex;
   align-items: center;
@@ -216,8 +250,6 @@ const CollapseButton = styled.button<{ $collapsed: boolean }>`
   color: ${props => props.$collapsed ? theme.colors.accentPrimary : theme.colors.textSecondary};
   cursor: pointer;
   transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  margin-top: ${props => props.$collapsed ? '12px' : 'auto'};
-  align-self: ${props => props.$collapsed ? 'center' : 'flex-start'};
   
   &:hover {
     background: ${props => props.$collapsed 
@@ -384,45 +416,53 @@ export const Sidebar: React.FC = () => {
         </>
       )}
 
-      <CollapseButton 
-        $collapsed={collapsed} 
-        onClick={() => setCollapsed(!collapsed)}
-        onMouseDown={(e) => {
-          if (!collapsed) return;
-          e.preventDefault();
-          const startY = e.clientY;
-          const startPosition = sidebarPosition;
-          
-              const handleMouseMove = (e: MouseEvent) => {
-                const deltaY = e.clientY - startY;
-                const viewportHeight = window.innerHeight;
-                const sidebarHeight = sidebarRef.current?.offsetHeight || 0;
-                const leftPadding = 20; // 좌측 패딩
+      <BottomButtonContainer $collapsed={collapsed}>
+        {!collapsed && (
+          <ProfileButton onClick={() => navigate('/profile')}>
+            <UserOutlined />
+          </ProfileButton>
+        )}
+        
+        <CollapseButton 
+          $collapsed={collapsed} 
+          onClick={() => setCollapsed(!collapsed)}
+          onMouseDown={(e) => {
+            if (!collapsed) return;
+            e.preventDefault();
+            const startY = e.clientY;
+            const startPosition = sidebarPosition;
+            
+                const handleMouseMove = (e: MouseEvent) => {
+                  const deltaY = e.clientY - startY;
+                  const viewportHeight = window.innerHeight;
+                  const sidebarHeight = sidebarRef.current?.offsetHeight || 0;
+                  const leftPadding = 20; // 좌측 패딩
 
-                // 최소/최대 위치 계산 (좌측 패딩 고려)
-                const minAllowedPosition = ((leftPadding + sidebarHeight / 2) / viewportHeight) * 100;
-                const maxAllowedPosition = ((viewportHeight - leftPadding - sidebarHeight / 2) / viewportHeight) * 100;
+                  // 최소/최대 위치 계산 (좌측 패딩 고려)
+                  const minAllowedPosition = ((leftPadding + sidebarHeight / 2) / viewportHeight) * 100;
+                  const maxAllowedPosition = ((viewportHeight - leftPadding - sidebarHeight / 2) / viewportHeight) * 100;
 
-                // 즉시 반응하도록 실시간 계산
-                const newPosition = startPosition + (deltaY / viewportHeight) * 100;
-                const clampedPosition = Math.max(minAllowedPosition, Math.min(maxAllowedPosition, newPosition));
-                
-                // 즉시 업데이트 (지연 없음)
-                setSidebarPosition(clampedPosition);
-              };
-          
-          const handleMouseUp = () => {
-            document.removeEventListener('mousemove', handleMouseMove);
-            document.removeEventListener('mouseup', handleMouseUp);
-          };
-          
-          document.addEventListener('mousemove', handleMouseMove);
-          document.addEventListener('mouseup', handleMouseUp);
-        }}
-        style={{ cursor: collapsed ? 'ns-resize' : 'pointer' }}
-      >
-        {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-      </CollapseButton>
+                  // 즉시 반응하도록 실시간 계산
+                  const newPosition = startPosition + (deltaY / viewportHeight) * 100;
+                  const clampedPosition = Math.max(minAllowedPosition, Math.min(maxAllowedPosition, newPosition));
+                  
+                  // 즉시 업데이트 (지연 없음)
+                  setSidebarPosition(clampedPosition);
+                };
+            
+            const handleMouseUp = () => {
+              document.removeEventListener('mousemove', handleMouseMove);
+              document.removeEventListener('mouseup', handleMouseUp);
+            };
+            
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+          }}
+          style={{ cursor: collapsed ? 'ns-resize' : 'pointer' }}
+        >
+          {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+        </CollapseButton>
+      </BottomButtonContainer>
     </SidebarContainer>
   );
 };

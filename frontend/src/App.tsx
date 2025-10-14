@@ -15,11 +15,12 @@ import { AlphaPool } from './pages/AlphaPool';
 import { AlphaIncubator } from './pages/AlphaIncubator';
 import { About } from './pages/About';
 import MyInvestment from './pages/MyInvestment';
+import Profile from './pages/Profile';
 
 import './App.css';
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated, loading, login } = useAuth();
+  const { isAuthenticated, loading, login, register } = useAuth();
 
   if (loading) {
     return (
@@ -36,7 +37,7 @@ const AppContent: React.FC = () => {
   }
 
   if (!isAuthenticated) {
-    return <Auth onLoginSuccess={login} />;
+    return <Auth onLoginSuccess={login} onRegisterSuccess={register} />;
   }
 
   return (
@@ -50,6 +51,7 @@ const AppContent: React.FC = () => {
           <Route path="/simulation" element={<Simulation />} />
           <Route path="/alpha-pool" element={<AlphaPool />} />
           <Route path="/alpha-incubator" element={<AlphaIncubator />} />
+          <Route path="/profile" element={<Profile />} />
           <Route path="/about" element={<About />} />
         </Routes>
       </Layout>

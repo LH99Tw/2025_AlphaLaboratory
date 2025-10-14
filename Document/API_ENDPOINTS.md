@@ -242,3 +242,84 @@ const chatResponse = await api.post('/chat', {
 - CORS is enabled for frontend communication
 - Error responses include `{ "error": "Error message" }` with appropriate HTTP status codes
 
+---
+
+## 👤 User Profile Endpoints
+
+### 1. GET `/api/csv/user/info`
+사용자 정보를 조회합니다.
+
+**Response:**
+```json
+{
+  "success": true,
+  "user_info": {
+    "user_id": "uuid",
+    "username": "admin",
+    "email": "admin@example.com",
+    "name": "관리자",
+    "profile_emoji": "😀",
+    "created_at": "2025-01-15T10:00:00",
+    "last_login": "2025-01-15T15:00:00"
+  }
+}
+```
+
+### 2. PUT `/api/csv/user/profile/update`
+프로필 정보를 업데이트합니다.
+
+**Request Body:**
+```json
+{
+  "nickname": "새닉네임",
+  "name": "새이름",
+  "email": "new@example.com",
+  "profile_emoji": "🤓"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "프로필이 업데이트되었습니다"
+}
+```
+
+### 3. POST `/api/csv/user/password/change`
+비밀번호를 변경합니다.
+
+**Request Body:**
+```json
+{
+  "current_password": "현재비밀번호",
+  "new_password": "새비밀번호"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "비밀번호가 변경되었습니다"
+}
+```
+
+### 4. GET `/api/csv/user/investment`
+사용자의 투자 데이터를 조회합니다.
+
+**Response:**
+```json
+{
+  "success": true,
+  "investment_data": {
+    "user_id": "uuid",
+    "total_assets": "50000000",
+    "cash": "20000000",
+    "stock_value": "30000000",
+    "updated_at": "2025-01-15T10:00:00"
+  },
+  "asset_history": [...]
+}
+```
+

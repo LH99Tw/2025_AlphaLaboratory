@@ -1,10 +1,11 @@
 import React, { ReactNode, useState, createContext, useContext } from 'react';
 import styled from 'styled-components';
+import { useNavigate } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Footer } from './Footer';
 import { LiquidBackground } from '../common/LiquidBackground';
 import { useAuth } from '../../contexts/AuthContext';
-import { LogoutOutlined, UserOutlined } from '@ant-design/icons';
+import { LogoutOutlined } from '@ant-design/icons';
 import { theme } from '../../styles/theme';
 
 // 사이드바 상태를 관리하는 Context
@@ -80,34 +81,51 @@ const HeaderRight = styled.div`
   gap: ${theme.spacing.md};
 `;
 
-const UserInfo = styled.div`
+const UserInfo = styled.button`
   display: flex;
   align-items: center;
   gap: ${theme.spacing.sm};
   padding: ${theme.spacing.sm} ${theme.spacing.md};
   background: ${theme.colors.liquidGlass};
   border: 1px solid ${theme.colors.border};
-  border-radius: 12px;
+  border-radius: 20px;
+  cursor: pointer;
   transition: all 0.3s;
   
   &:hover {
     background: ${theme.colors.liquidGlassHover};
     border-color: ${theme.colors.borderHover};
+    transform: scale(1.02);
   }
-  
-  .anticon {
-    color: ${theme.colors.accentPrimary};
-  }
+`;
+
+const UserNickname = styled.span`
+  font-size: ${theme.typography.fontSize.body};
+  font-weight: ${theme.typography.fontWeight.medium};
+  color: ${theme.colors.textPrimary};
+`;
+
+const ProfileEmoji = styled.div`
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: ${theme.colors.liquidGoldGradient};
+  border: 2px solid ${theme.colors.liquidGoldBorder};
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
 `;
 
 const LogoutButton = styled.button`
   display: flex;
   align-items: center;
-  gap: ${theme.spacing.sm};
-  padding: ${theme.spacing.sm} ${theme.spacing.md};
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   background: transparent;
   border: 1px solid ${theme.colors.border};
-  border-radius: 12px;
+  border-radius: 50%;
   color: ${theme.colors.textSecondary};
   cursor: pointer;
   transition: all 0.3s;
@@ -116,12 +134,49 @@ const LogoutButton = styled.button`
     color: ${theme.colors.error};
     border-color: ${theme.colors.error};
     background: rgba(242, 139, 130, 0.1);
+    transform: scale(1.05);
+  }
+  
+  .anticon {
+    font-size: 16px;
   }
 `;
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [userProfile, setUserProfile] = useState({
+    nickname: user?.username || '사용자',
+    emoji: '😀'
+  });
+
+  // CSV에서 사용자 프로필 정보 로드
+  React.useEffect(() => {
+    const fetchUserProfile = async () => {
+      try {
+        const response = await fetch('/api/csv/user/info', {
+          credentials: 'include'
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          const userInfo = data.user_info;
+          
+          setUserProfile({
+            nickname: userInfo.username || '사용자',
+            emoji: userInfo.profile_emoji || '😀'
+          });
+        }
+      } catch (error) {
+        console.error('프로필 정보 로드 실패:', error);
+      }
+    };
+    
+    if (user) {
+      fetchUserProfile();
+    }
+  }, [user]);
 
   return (
     <SidebarContext.Provider value={{ collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed }}>
@@ -134,13 +189,12 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
               {/* 추가 헤더 요소 */}
             </HeaderLeft>
             <HeaderRight>
-              <UserInfo>
-                <UserOutlined />
-                <span>{user?.username || 'User'}</span>
+              <UserInfo onClick={() => navigate('/profile')}>
+                <UserNickname>{userProfile.nickname}</UserNickname>
+                <ProfileEmoji>{userProfile.emoji}</ProfileEmoji>
               </UserInfo>
-              <LogoutButton onClick={logout}>
+              <LogoutButton onClick={logout} title="로그아웃">
                 <LogoutOutlined />
-                <span>Logout</span>
               </LogoutButton>
             </HeaderRight>
           </Header>

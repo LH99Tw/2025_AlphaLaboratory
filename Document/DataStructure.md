@@ -17,6 +17,7 @@
 | email | STRING | 이메일 (Unique) | `admin@smartanalytics.com` |
 | password_hash | STRING | 비밀번호 해시 (SHA256) | `5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8` |
 | name | STRING | 실명 | `관리자` |
+| profile_emoji | STRING | 프로필 이모티콘 | `😀` |
 | created_at | DATETIME | 계정 생성일시 | `2025-01-15T10:30:00` |
 | last_login | DATETIME | 마지막 로그인 일시 | `2025-01-15T15:45:30` |
 | is_active | BOOLEAN | 활성 상태 | `True` |

@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import styled from 'styled-components';
 import { theme } from '../styles/theme';
 import { GlassCard } from '../components/common/GlassCard';
-import { GlassButton } from '../components/common/GlassButton';
-import { GlassInput } from '../components/common/GlassInput';
 import { LiquidBackground } from '../components/common/LiquidBackground';
 import { Doughnut, Bar } from 'react-chartjs-2';
 import {
@@ -43,20 +41,14 @@ const PageTitle = styled.h1`
 
 const ContentGrid = styled.div`
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: ${theme.spacing.xl};
   margin-bottom: ${theme.spacing.xl};
-
-  @media (max-width: 768px) {
-    grid-template-columns: 1fr;
-  }
+  max-width: 800px;
+  margin: 0 auto ${theme.spacing.xl};
 `;
 
 const AssetOverviewCard = styled(GlassCard)`
-  padding: ${theme.spacing.xl};
-`;
-
-const AccountSettingsCard = styled(GlassCard)`
   padding: ${theme.spacing.xl};
 `;
 
@@ -95,25 +87,6 @@ const ChartContainer = styled.div`
   margin: ${theme.spacing.lg} 0;
 `;
 
-const FormGroup = styled.div`
-  margin-bottom: ${theme.spacing.lg};
-`;
-
-const Label = styled.label`
-  display: block;
-  font-size: ${theme.typography.fontSize.body};
-  font-weight: ${theme.typography.fontWeight.medium};
-  color: ${theme.colors.textPrimary};
-  margin-bottom: ${theme.spacing.sm};
-`;
-
-const ButtonGroup = styled.div`
-  display: flex;
-  gap: ${theme.spacing.md};
-  justify-content: center;
-  margin-top: ${theme.spacing.xl};
-`;
-
 const InfoText = styled.p`
   font-size: ${theme.typography.fontSize.sm};
   color: ${theme.colors.textSecondary};
@@ -131,15 +104,40 @@ interface UserData {
 
 const MyInvestment: React.FC = () => {
   const [userData, setUserData] = useState<UserData>({
-    totalAssets: 10000000,
-    cash: 3000000,
-    investments: 7000000,
-    name: '홍길동',
-    email: 'hong@example.com'
+    totalAssets: 0,
+    cash: 0,
+    investments: 0,
+    name: '',
+    email: ''
   });
 
-  const [isEditing, setIsEditing] = useState(false);
-  const [editData, setEditData] = useState(userData);
+  // CSV에서 투자 데이터 로드
+  React.useEffect(() => {
+    const fetchInvestmentData = async () => {
+      try {
+        const response = await fetch('/api/csv/user/investment', {
+          credentials: 'include'
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          const investmentData = data.investment_data;
+          
+          setUserData({
+            totalAssets: parseFloat(investmentData.total_assets) || 0,
+            cash: parseFloat(investmentData.cash) || 0,
+            investments: parseFloat(investmentData.stock_value) || 0,
+            name: '',  // 필요시 user info에서 가져오기
+            email: ''  // 필요시 user info에서 가져오기
+          });
+        }
+      } catch (error) {
+        console.error('투자 데이터 로드 실패:', error);
+      }
+    };
+    
+    fetchInvestmentData();
+  }, []);
 
   // 도넛 차트 데이터 (자산 비중)
   const doughnutData = {
@@ -186,22 +184,6 @@ const MyInvestment: React.FC = () => {
     },
   };
 
-  const handleEdit = () => {
-    setIsEditing(true);
-    setEditData(userData);
-  };
-
-  const handleSave = () => {
-    setUserData(editData);
-    setIsEditing(false);
-    // TODO: 백엔드 API 호출하여 데이터 저장
-  };
-
-  const handleCancel = () => {
-    setIsEditing(false);
-    setEditData(userData);
-  };
-
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('ko-KR', {
       style: 'currency',
@@ -233,98 +215,6 @@ const MyInvestment: React.FC = () => {
             투자: {formatCurrency(userData.investments)} ({((userData.investments / userData.totalAssets) * 100).toFixed(1)}%)
           </InfoText>
         </AssetOverviewCard>
-
-        {/* 계정 설정 */}
-        <AccountSettingsCard>
-          <CardTitle>계정 설정</CardTitle>
-          
-          {!isEditing ? (
-            <>
-              <FormGroup>
-                <Label>이름</Label>
-                <div style={{ 
-                  padding: theme.spacing.md, 
-                  background: theme.colors.liquidGlass,
-                  borderRadius: theme.borderRadius.md,
-                  border: `1px solid ${theme.colors.liquidGlassBorder}`
-                }}>
-                  {userData.name}
-                </div>
-              </FormGroup>
-
-              <FormGroup>
-                <Label>이메일</Label>
-                <div style={{ 
-                  padding: theme.spacing.md, 
-                  background: theme.colors.liquidGlass,
-                  borderRadius: theme.borderRadius.md,
-                  border: `1px solid ${theme.colors.liquidGlassBorder}`
-                }}>
-                  {userData.email}
-                </div>
-              </FormGroup>
-
-              <ButtonGroup>
-                <GlassButton onClick={handleEdit}>
-                  정보 수정
-                </GlassButton>
-              </ButtonGroup>
-            </>
-          ) : (
-            <>
-              <FormGroup>
-                <Label>이름</Label>
-                <GlassInput
-                  type="text"
-                  value={editData.name}
-                  onChange={(e) => setEditData({ ...editData, name: e.target.value })}
-                />
-              </FormGroup>
-
-              <FormGroup>
-                <Label>이메일</Label>
-                <GlassInput
-                  type="email"
-                  value={editData.email}
-                  onChange={(e) => setEditData({ ...editData, email: e.target.value })}
-                />
-              </FormGroup>
-
-              <FormGroup>
-                <Label>현재 비밀번호</Label>
-                <GlassInput
-                  type="password"
-                  placeholder="현재 비밀번호를 입력하세요"
-                />
-              </FormGroup>
-
-              <FormGroup>
-                <Label>새 비밀번호</Label>
-                <GlassInput
-                  type="password"
-                  placeholder="새 비밀번호를 입력하세요"
-                />
-              </FormGroup>
-
-              <FormGroup>
-                <Label>비밀번호 확인</Label>
-                <GlassInput
-                  type="password"
-                  placeholder="새 비밀번호를 다시 입력하세요"
-                />
-              </FormGroup>
-
-              <ButtonGroup>
-                <GlassButton onClick={handleSave}>
-                  저장
-                </GlassButton>
-                <GlassButton onClick={handleCancel} variant="secondary">
-                  취소
-                </GlassButton>
-              </ButtonGroup>
-            </>
-          )}
-        </AccountSettingsCard>
       </ContentGrid>
 
       {/* 자산 변화 차트 */}
