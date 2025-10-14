@@ -448,3 +448,54 @@
     - **상태 관리**: useState, useEffect, useCallback
     - **스타일링**: styled-components, Apple-style UI 원칙 적용
     - **백엔드**: Flask, JSON 파일 기반 저장소
+
+### [13] 2025.01.15 - CSV 기반 회원 관리 시스템 구축
+
+#### CSV 데이터 구조 설계
+- **6개 CSV 파일**: users, investments, portfolios, user_alphas, transactions, asset_history
+- **관계형 설계**: user_id를 Foreign Key로 모든 테이블 연결
+- **데이터 무결성**: 애플리케이션 레벨에서 제약 관리
+- **인코딩**: UTF-8 with BOM (utf-8-sig) 사용
+
+#### 백엔드 모듈 구현
+- **CSVManager 클래스**: 모든 CSV 데이터 CRUD 작업 통합 관리
+- **사용자 관리**: 생성, 인증, 정보 조회/수정, 비밀번호 변경
+- **투자 관리**: 자산 현황 조회/업데이트, 자산 이력 자동 기록
+- **포트폴리오 관리**: 종목 추가/제거, 평균 매수가 계산
+- **거래 내역**: 모든 금융 거래 기록 (매수/매도/입출금)
+- **알파 관리**: 사용자별 알파 저장/조회/삭제
+
+#### REST API 엔드포인트 추가
+- **사용자 API**: `/api/csv/user/register`, `/api/csv/user/login`, `/api/csv/user/info`
+- **투자 API**: `/api/csv/user/investment` (자산 현황 + 이력)
+- **포트폴리오 API**: `/api/csv/user/portfolio` (보유 주식 목록)
+- **거래 API**: `/api/csv/user/transactions` (거래 내역)
+- **알파 API**: `/api/csv/user/alphas`, `/api/csv/user/alpha/save`
+
+#### 테스트 데이터 생성
+- **Admin 계정**: admin / admin123 (5천만원 자산)
+- **포트폴리오**: 5개 종목 (AAPL, MSFT, GOOGL, AMZN, TSLA)
+- **자산 구성**: 현금 2천만원, 주식 3천만원
+- **데이터 위치**: `database/csv_data/` 디렉토리
+
+#### 문서화 완료
+- **DataStructure.md**: 상세한 CSV 구조 명세서 작성
+- **ERD 다이어그램**: 테이블 간 관계 시각화
+- **JOIN 예시**: 실제 활용 방법 제공
+- **Request.md**: 완료된 과업으로 이동
+
+#### 시스템 특징
+- **확장성**: 새로운 사용자 데이터 필드 추가 용이
+- **성능**: pandas DataFrame으로 대량 데이터 처리
+- **보안**: 비밀번호 SHA256 해시화
+- **백업**: CSV 파일 기반으로 간단한 백업/복구
+- **개발**: 관계형 DB 없이도 JOIN 기능 구현
+
+#### 데이터 흐름
+```
+사용자 등록 → 초기 투자 데이터 생성 → 포트폴리오 관리
+     ↓
+거래 실행 → 자산 이력 기록 → 알파 생성/저장
+     ↓
+대시보드 조회 → CSV JOIN → 통합 데이터 표시
+```

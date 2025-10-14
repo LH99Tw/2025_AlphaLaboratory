@@ -26,6 +26,7 @@ import traceback
 import threading
 import time
 from user_database import UserDatabase
+from csv_manager import CSVManager
 
 def load_real_data_for_ga():
     """GA를 위한 실제 데이터 로드"""
@@ -238,6 +239,7 @@ ga_system = None
 langchain_agent = None
 database_manager = None
 user_database = None
+csv_manager = None
 
 # 작업 상태 추적을 위한 딕셔너리
 task_status = {}
@@ -328,7 +330,7 @@ def update_last_login(username):
 
 def initialize_systems():
     """시스템 초기화"""
-    global backtest_system, ga_system, langchain_agent, database_manager, user_database
+    global backtest_system, ga_system, langchain_agent, database_manager, user_database, csv_manager
     
     try:
         # Backend Module - 백테스트 시스템
@@ -429,6 +431,14 @@ def initialize_systems():
         except Exception as e:
             logger.warning(f"⚠️ 사용자 데이터베이스 초기화 실패: {e}")
             user_database = None
+        
+        # CSV 매니저 초기화
+        try:
+            csv_manager = CSVManager()
+            logger.info("✅ CSV 매니저 초기화 완료")
+        except Exception as e:
+            logger.warning(f"⚠️ CSV 매니저 초기화 실패: {e}")
+            csv_manager = None
         
     except Exception as e:
         logger.error(f"❌ 시스템 초기화 실패: {str(e)}")
@@ -2084,6 +2094,225 @@ def user_logout():
         
     except Exception as e:
         logger.error(f"로그아웃 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+# ===================== CSV 기반 사용자 관리 API =====================
+
+@app.route('/api/csv/user/register', methods=['POST'])
+def csv_register_user():
+    """CSV 기반 사용자 등록"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+        name = data.get('name', '').strip()
+        
+        if not all([username, email, password]):
+            return jsonify({'error': '필수 필드가 누락되었습니다'}), 400
+        
+        if csv_manager is None:
+            return jsonify({'error': 'CSV 매니저가 초기화되지 않았습니다'}), 500
+        
+        user_id = csv_manager.create_user(username, email, password, name)
+        
+        return jsonify({
+            'success': True,
+            'message': '사용자가 성공적으로 등록되었습니다',
+            'user_id': user_id
+        })
+        
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"CSV 사용자 등록 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/csv/user/login', methods=['POST'])
+def csv_user_login():
+    """CSV 기반 사용자 로그인"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+        
+        if not username or not password:
+            return jsonify({'error': '사용자명과 비밀번호를 입력해주세요'}), 400
+        
+        if csv_manager is None:
+            return jsonify({'error': 'CSV 매니저가 초기화되지 않았습니다'}), 500
+        
+        user_id = csv_manager.authenticate_user(username, password)
+        if not user_id:
+            return jsonify({'error': '인증에 실패했습니다'}), 401
+        
+        # 세션에 사용자 ID 저장
+        session['user_id'] = user_id
+        
+        # 사용자 정보 조회
+        user_info = csv_manager.get_user_info(user_id)
+        
+        return jsonify({
+            'success': True,
+            'message': '로그인 성공',
+            'user_id': user_id,
+            'user_info': user_info
+        })
+        
+    except Exception as e:
+        logger.error(f"CSV 사용자 로그인 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/csv/user/info', methods=['GET'])
+def csv_get_user_info():
+    """CSV 기반 사용자 정보 조회"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        if csv_manager is None:
+            return jsonify({'error': 'CSV 매니저가 초기화되지 않았습니다'}), 500
+        
+        user_info = csv_manager.get_user_info(user_id)
+        if not user_info:
+            return jsonify({'error': '사용자 정보를 찾을 수 없습니다'}), 404
+        
+        return jsonify({
+            'success': True,
+            'user_info': user_info
+        })
+        
+    except Exception as e:
+        logger.error(f"CSV 사용자 정보 조회 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/csv/user/investment', methods=['GET'])
+def csv_get_user_investment():
+    """CSV 기반 투자 데이터 조회"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        if csv_manager is None:
+            return jsonify({'error': 'CSV 매니저가 초기화되지 않았습니다'}), 500
+        
+        investment_data = csv_manager.get_investment_data(user_id)
+        if not investment_data:
+            return jsonify({'error': '투자 데이터를 찾을 수 없습니다'}), 404
+        
+        # 자산 이력도 함께 조회
+        asset_history = csv_manager.get_asset_history(user_id, limit=30)
+        
+        return jsonify({
+            'success': True,
+            'investment_data': investment_data,
+            'asset_history': asset_history
+        })
+        
+    except Exception as e:
+        logger.error(f"CSV 투자 데이터 조회 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/csv/user/portfolio', methods=['GET'])
+def csv_get_portfolio():
+    """CSV 기반 포트폴리오 조회"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        if csv_manager is None:
+            return jsonify({'error': 'CSV 매니저가 초기화되지 않았습니다'}), 500
+        
+        portfolio = csv_manager.get_portfolio(user_id)
+        
+        return jsonify({
+            'success': True,
+            'portfolio': portfolio
+        })
+        
+    except Exception as e:
+        logger.error(f"CSV 포트폴리오 조회 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/csv/user/transactions', methods=['GET'])
+def csv_get_transactions():
+    """CSV 기반 거래 내역 조회"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        if csv_manager is None:
+            return jsonify({'error': 'CSV 매니저가 초기화되지 않았습니다'}), 500
+        
+        limit = int(request.args.get('limit', 50))
+        transactions = csv_manager.get_transactions(user_id, limit)
+        
+        return jsonify({
+            'success': True,
+            'transactions': transactions
+        })
+        
+    except Exception as e:
+        logger.error(f"CSV 거래 내역 조회 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/csv/user/alphas', methods=['GET'])
+def csv_get_user_alphas():
+    """CSV 기반 사용자 알파 목록 조회"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        if csv_manager is None:
+            return jsonify({'error': 'CSV 매니저가 초기화되지 않았습니다'}), 500
+        
+        alphas = csv_manager.get_user_alphas(user_id)
+        
+        return jsonify({
+            'success': True,
+            'alphas': alphas
+        })
+        
+    except Exception as e:
+        logger.error(f"CSV 알파 목록 조회 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/csv/user/alpha/save', methods=['POST'])
+def csv_save_user_alpha():
+    """CSV 기반 사용자 알파 저장"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        data = request.get_json()
+        alpha_name = data.get('alpha_name', '')
+        alpha_expression = data.get('alpha_expression', '')
+        performance = data.get('performance', {})
+        
+        if not alpha_name or not alpha_expression:
+            return jsonify({'error': '알파 이름과 수식은 필수입니다'}), 400
+        
+        if csv_manager is None:
+            return jsonify({'error': 'CSV 매니저가 초기화되지 않았습니다'}), 500
+        
+        success = csv_manager.save_user_alpha(user_id, alpha_name, alpha_expression, performance)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': '알파가 저장되었습니다'
+            })
+        else:
+            return jsonify({'error': '알파 저장에 실패했습니다'}), 500
+        
+    except Exception as e:
+        logger.error(f"CSV 알파 저장 오류: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.errorhandler(404)
