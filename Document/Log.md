@@ -1064,3 +1064,15 @@ allowed_fields = ['name', 'email', 'profile_emoji']
 - 헤더 요소들이 균일한 간격으로 배치되어 시각적 일관성 대폭 향상
 - 사용자가 요소들 간의 관계를 직관적으로 이해할 수 있음
 - 전체적인 디자인 완성도가 높아짐
+
+[20](20250115):리팩토링 1차 - 포트폴리오 실데이터 연동 및 UI 정비
+    - `frontend/src/pages/Portfolio.tsx`를 CSV 기반 API 연동 구조로 전면 수정하고 매수·매도 모달 및 실시간 지표 계산을 추가했습니다.
+    - `backend/app.py`, `backend/csv_manager.py`에 포트폴리오 추가/매도 엔드포인트와 평가액 재계산 로직을 도입하여 투자 요약·거래 내역을 자동 동기화했습니다.
+    - Dashboard·Backtest·AlphaIncubator 페이지의 한글화와 거래 타입 표기, 사이드바 로고/간격, 테마 컬러 일관성을 보완했습니다.
+    - `Document/ImplementationSummary.md`, `Document/Design.md`, `Document/Structure.md`에 리팩토링 범위와 구조 점검 결과를 반영했습니다.
+
+[21](20250115):리팩토링 2차 - GA 연동 안정화 및 투자 화면 개선
+    - AlphaPool에서 GA 실행·상태 조회·알파 저장을 `services/api.ts`로 통합하고 폴링 로직을 `useRef` 기반으로 안정화했습니다.
+    - Footer 접근성 경고를 제거하고 내부 링크를 버튼화하여 ESLint 빌드 경고를 해소했습니다.
+    - 포트폴리오 매수 시 보유 현금 검증과 매도 후 잔여 수량 안내를 추가하고, 백엔드에서 음수 현금 발생을 차단했습니다.
+    - MyInvestment 자산 그래프를 실제 이력 데이터 기반으로만 표시하고, 이력 부재 시 안내 문구를 노출하도록 개선했습니다.

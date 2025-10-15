@@ -6,7 +6,6 @@ import { GlassButton } from '../components/common/GlassButton';
 import { GlassInput } from '../components/common/GlassInput';
 import { LiquidBackground } from '../components/common/LiquidBackground';
 import { useAuth } from '../contexts/AuthContext';
-import { UserOutlined } from '@ant-design/icons';
 
 const ProfileContainer = styled.div`
   min-height: calc(100vh - 200px);
@@ -449,4 +448,3 @@ const Profile: React.FC = () => {
 };
 
 export default Profile;
-

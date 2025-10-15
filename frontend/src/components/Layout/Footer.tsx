@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { theme } from '../../styles/theme';
-import { GithubOutlined, TwitterOutlined, LinkedinOutlined, YoutubeOutlined, InstagramOutlined, GlobalOutlined } from '@ant-design/icons';
+import { GithubOutlined, InstagramOutlined, GlobalOutlined } from '@ant-design/icons';
 
 const FooterContainer = styled.footer`
   width: 100%;
@@ -99,18 +99,23 @@ const LinkList = styled.ul`
 `;
 
 const LinkItem = styled.li`
-  a {
-    color: ${theme.colors.textSecondary};
-    text-decoration: none;
-    font-size: ${theme.typography.fontSize.caption};
-    transition: all ${theme.transitions.spring};
-    display: inline-block;
-    cursor: pointer;
-    
-    &:hover {
-      color: ${theme.colors.textPrimary};
-      transform: translateX(4px);
-    }
+  list-style: none;
+`;
+
+const LinkButton = styled.button`
+  color: ${theme.colors.textSecondary};
+  font-size: ${theme.typography.fontSize.caption};
+  transition: all ${theme.transitions.spring};
+  display: inline-block;
+  cursor: pointer;
+  padding: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  
+  &:hover {
+    color: ${theme.colors.textPrimary};
+    transform: translateX(4px);
   }
 `;
 
@@ -188,10 +193,10 @@ export const Footer: React.FC = () => {
           <FooterSection>
             <SectionTitle>Document</SectionTitle>
             <LinkList>
-              <LinkItem><a onClick={() => handleNavigation('/about')}>회사 소개</a></LinkItem>
-              <LinkItem><a onClick={() => handleNavigation('/faq')}>자주 묻는 질문</a></LinkItem>
-              <LinkItem><a onClick={() => handleNavigation('/team')}>구성원</a></LinkItem>
-              <LinkItem><a onClick={() => handleNavigation('/contact')}>연락</a></LinkItem>
+              <LinkItem><LinkButton type="button" onClick={() => handleNavigation('/about')}>회사 소개</LinkButton></LinkItem>
+              <LinkItem><LinkButton type="button" onClick={() => handleNavigation('/faq')}>자주 묻는 질문</LinkButton></LinkItem>
+              <LinkItem><LinkButton type="button" onClick={() => handleNavigation('/team')}>구성원</LinkButton></LinkItem>
+              <LinkItem><LinkButton type="button" onClick={() => handleNavigation('/contact')}>연락</LinkButton></LinkItem>
             </LinkList>
           </FooterSection>
           
@@ -211,4 +216,3 @@ export const Footer: React.FC = () => {
     </FooterContainer>
   );
 };
-

@@ -191,37 +191,24 @@ const MyInvestment: React.FC = () => {
 
   // 바 차트 데이터 (실제 자산 변화)
   const barData = React.useMemo(() => {
-    if (assetHistory.length > 0) {
-      // 실제 자산 변동 이력이 있는 경우
-      const history = assetHistory.slice(0, 6).reverse(); // 최근 6개월만 표시
-      return {
-        labels: history.map(h => new Date(h.recorded_at).toLocaleDateString('ko-KR', { month: 'short' })),
-        datasets: [
-          {
-            label: '총 자산',
-            data: history.map(h => h.total_assets),
-            backgroundColor: theme.colors.accentGold,
-            borderColor: theme.colors.accentPrimary,
-            borderWidth: 1,
-          },
-        ],
-      };
-    } else {
-      // 자산 변동 이력이 없는 경우 더미 데이터 사용
-      return {
-        labels: ['1월', '2월', '3월', '4월', '5월', '6월'],
-        datasets: [
-          {
-            label: '총 자산',
-            data: [8500000, 8800000, 9200000, 9500000, 9800000, userData.totalAssets || 10000000],
-            backgroundColor: theme.colors.accentGold,
-            borderColor: theme.colors.accentPrimary,
-            borderWidth: 1,
-          },
-        ],
-      };
+    if (assetHistory.length === 0) {
+      return null;
     }
-  }, [assetHistory, userData.totalAssets]);
+
+    const history = assetHistory.slice(0, 6).reverse();
+    return {
+      labels: history.map(h => new Date(h.recorded_at).toLocaleDateString('ko-KR', { month: 'short' })),
+      datasets: [
+        {
+          label: '총 자산',
+          data: history.map(h => h.total_assets),
+          backgroundColor: theme.colors.accentGold,
+          borderColor: theme.colors.accentPrimary,
+          borderWidth: 1,
+        },
+      ],
+    };
+  }, [assetHistory]);
 
   const chartOptions = {
     responsive: true,
@@ -275,7 +262,8 @@ const MyInvestment: React.FC = () => {
 
           <InfoText>
             현금: {formatCurrency(userData.cash)} ({userData.totalAssets > 0 ? ((userData.cash / userData.totalAssets) * 100).toFixed(1) : 0}%)<br/>
-            투자: {formatCurrency(userData.investments)} ({userData.totalAssets > 0 ? ((userData.investments / userData.totalAssets) * 100).toFixed(1) : 0}%)
+            투자: {formatCurrency(userData.investments)} ({userData.totalAssets > 0 ? ((userData.investments / userData.totalAssets) * 100).toFixed(1) : 0}%)<br/>
+            보유 종목: {portfolioData.length}개
           </InfoText>
         </AssetOverviewCard>
       </ContentGrid>
@@ -283,9 +271,13 @@ const MyInvestment: React.FC = () => {
       {/* 자산 변화 차트 */}
       <GlassCard style={{ padding: theme.spacing.xl }}>
         <CardTitle>자산 변화 추이</CardTitle>
-        <ChartContainer>
-          <Bar data={barData} options={chartOptions} />
-        </ChartContainer>
+        {barData ? (
+          <ChartContainer>
+            <Bar data={barData} options={chartOptions} />
+          </ChartContainer>
+        ) : (
+          <InfoText>자산 변동 이력이 아직 없습니다. 거래가 기록되면 그래프가 표시됩니다.</InfoText>
+        )}
       </GlassCard>
     </MyInvestmentContainer>
   );

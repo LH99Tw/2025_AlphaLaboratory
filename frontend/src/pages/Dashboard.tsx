@@ -287,6 +287,14 @@ export const Dashboard: React.FC = () => {
   const [transactionData, setTransactionData] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const transactionTypeLabel: Record<string, string> = {
+    '입금': '입금',
+    '출금': '출금',
+    '배당': '배당',
+    '매수': '매수',
+    '매도': '매도',
+  };
+
   useEffect(() => {
     const loadDashboardData = async () => {
       if (!user) return;
@@ -570,9 +578,7 @@ export const Dashboard: React.FC = () => {
               <TransactionItem key={idx}>
                 <div>
                   <div style={{ color: theme.colors.textPrimary, fontWeight: 600, fontSize: theme.typography.fontSize.body }}>
-                    {transaction.transaction_type === '입금' ? '입금' :
-                     transaction.transaction_type === '출금' ? '출금' :
-                     transaction.transaction_type === '배당' ? '배당' : '거래'}
+                    {transactionTypeLabel[transaction.transaction_type] || '거래'}
                   </div>
                   <div style={{ color: theme.colors.textSecondary, fontSize: theme.typography.fontSize.caption, marginTop: '4px' }}>
                     {new Date(transaction.transaction_date).toLocaleDateString()}

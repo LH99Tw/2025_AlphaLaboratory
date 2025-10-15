@@ -173,10 +173,10 @@ export const Backtest: React.FC = () => {
               value={params.factors}
               onChange={(value) => setParams({ ...params, factors: value as string[] })}
               options={[
-                { value: 'alpha001', label: 'Alpha 001' },
-                { value: 'alpha002', label: 'Alpha 002' },
-                { value: 'alpha003', label: 'Alpha 003' },
-                { value: 'alpha004', label: 'Alpha 004' },
+                { value: 'alpha001', label: '알파 001' },
+                { value: 'alpha002', label: '알파 002' },
+                { value: 'alpha003', label: '알파 003' },
+                { value: 'alpha004', label: '알파 004' },
               ]}
             />
           </FormGroup>
@@ -252,35 +252,38 @@ export const Backtest: React.FC = () => {
       <RightPanel>
         {results && results.results && (
           <>
-            {Object.entries(results.results).map(([factor, result]) => (
-              <ResultCard key={factor}>
-                <ResultTitle>{factor} 결과</ResultTitle>
+            {Object.entries(results.results).map(([factor, result]) => {
+              const displayFactor = factor.toUpperCase();
+              return (
+                <ResultCard key={factor}>
+                <ResultTitle>{displayFactor} 결과</ResultTitle>
                 <MetricRow>
-                  <MetricLabel>CAGR</MetricLabel>
+                  <MetricLabel>연평균 수익률 (CAGR)</MetricLabel>
                   <MetricValue $positive={result.cagr > 0}>
                     {(result.cagr * 100).toFixed(2)}%
                   </MetricValue>
                 </MetricRow>
                 <MetricRow>
-                  <MetricLabel>Sharpe Ratio</MetricLabel>
+                  <MetricLabel>샤프 지수</MetricLabel>
                   <MetricValue>{result.sharpe_ratio.toFixed(3)}</MetricValue>
                 </MetricRow>
                 <MetricRow>
-                  <MetricLabel>Max Drawdown</MetricLabel>
+                  <MetricLabel>최대 낙폭 (MDD)</MetricLabel>
                   <MetricValue $positive={false}>
                     {(result.max_drawdown * 100).toFixed(2)}%
                   </MetricValue>
                 </MetricRow>
                 <MetricRow>
-                  <MetricLabel>IC</MetricLabel>
+                  <MetricLabel>정보 계수 (IC)</MetricLabel>
                   <MetricValue>{result.ic_mean.toFixed(4)}</MetricValue>
                 </MetricRow>
                 <MetricRow>
                   <MetricLabel>승률</MetricLabel>
                   <MetricValue>{(result.win_rate * 100).toFixed(2)}%</MetricValue>
                 </MetricRow>
-              </ResultCard>
-            ))}
+                </ResultCard>
+              );
+            })}
           </>
         )}
 
@@ -295,4 +298,3 @@ export const Backtest: React.FC = () => {
     </BacktestContainer>
   );
 };
-

@@ -82,6 +82,15 @@ export interface AssetHistoryResponse {
   history: AssetHistory[];
 }
 
+// 💰 투자 요약 데이터 (CSV 기반)
+export interface InvestmentData {
+  user_id: string;
+  total_assets: number;
+  cash: number;
+  stock_value: number;
+  updated_at: string;
+}
+
 // 💼 포트폴리오 종목 (기존 호환용 - 가중치 기반)
 export interface PortfolioStockLegacy {
   ticker: string;
@@ -120,6 +129,7 @@ export interface GAParams {
   population_size: number;
   generations: number;
   max_alphas: number;
+  max_depth?: number;
   rebalancing_frequency: string;
   transaction_cost: number;
   quantile: number;
@@ -147,4 +157,3 @@ export interface BacktestStatus {
   results?: Record<string, BacktestResult>;
   error?: string;
 }
-

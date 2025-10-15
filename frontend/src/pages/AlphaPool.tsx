@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import ReactFlow, {
   Node,
@@ -12,13 +12,14 @@ import ReactFlow, {
   BackgroundVariant,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { GlassCard } from '../components/common/GlassCard';
 import { GlassButton } from '../components/common/GlassButton';
 import { theme } from '../styles/theme';
 import { PlayCircleOutlined } from '@ant-design/icons';
 import { NodeConfigModal } from '../components/AlphaFactory/NodeConfigModal';
 import { AlphaListPanel } from '../components/AlphaFactory/AlphaListPanel';
 import { message as antdMessage } from 'antd';
+import { runGA, getGAStatus, saveUserAlphas } from '../services/api';
+import { GAParams } from '../types';
 
 const Container = styled.div`
   display: flex;
@@ -255,8 +256,7 @@ export const AlphaPool: React.FC = () => {
   const [selectedNodeType, setSelectedNodeType] = useState<'data' | 'backtest' | 'ga' | 'evolution' | 'results'>('data');
 
   // GA 관련 상태
-  const [gaTaskId, setGaTaskId] = useState<string | null>(null);
-  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   // 최종 알파 리스트
   const [alphaList, setAlphaList] = useState<any[]>([]);
@@ -298,65 +298,19 @@ export const AlphaPool: React.FC = () => {
     antdMessage.success('설정이 저장되었습니다');
   }, [selectedNodeId]);
 
-  // GA 실행 함수
-  const handleRunGA = useCallback(async () => {
-    if (!nodeStates['ga-node'].completed) {
-      antdMessage.warning('GA 엔진 설정을 먼저 완료해주세요');
-      return;
-    }
-
-    const gaConfig = nodeStates['ga-node'].config;
-
-    try {
-      setNodeStates(prev => ({
-        ...prev,
-        'ga-node': { ...prev['ga-node'], status: 'running' },
-        'evolution-node': { ...prev['evolution-node'], status: 'running' },
-      }));
-
-      const response = await fetch('http://localhost:5002/api/ga/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          population_size: gaConfig.populationSize || 50,
-          generations: gaConfig.generations || 20,
-          max_depth: gaConfig.maxDepth || 10,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.success && data.task_id) {
-        setGaTaskId(data.task_id);
-        antdMessage.success('GA가 시작되었습니다!');
-        startPolling(data.task_id);
-      } else {
-        throw new Error('GA 시작 실패');
-      }
-    } catch (error) {
-      console.error('GA 실행 오류:', error);
-      antdMessage.error('GA 실행 중 오류가 발생했습니다');
-      setNodeStates(prev => ({
-        ...prev,
-        'ga-node': { ...prev['ga-node'], status: 'failed' },
-        'evolution-node': { ...prev['evolution-node'], status: 'failed' },
-      }));
-    }
-  }, [nodeStates]);
-
   // GA 상태 폴링
   const startPolling = useCallback((taskId: string) => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+    }
+
     const interval = setInterval(async () => {
       try {
-        const response = await fetch(`http://localhost:5002/api/ga/status/${taskId}`, {
-          credentials: 'include',
-        });
-        const data = await response.json();
+        const data = await getGAStatus(taskId);
 
         if (data.status === 'completed') {
           clearInterval(interval);
-          setPollingInterval(null);
+          pollingRef.current = null;
 
           setNodeStates(prev => ({
             ...prev,
@@ -374,7 +328,6 @@ export const AlphaPool: React.FC = () => {
             },
           }));
 
-          // 알파 리스트 생성
           const formattedAlphas = (data.results || []).map((alpha: any, index: number) => ({
             id: `alpha_${Date.now()}_${index}`,
             name: `알파 #${index + 1}`,
@@ -387,7 +340,7 @@ export const AlphaPool: React.FC = () => {
           antdMessage.success('GA가 완료되었습니다!');
         } else if (data.status === 'failed') {
           clearInterval(interval);
-          setPollingInterval(null);
+          pollingRef.current = null;
 
           setNodeStates(prev => ({
             ...prev,
@@ -396,7 +349,6 @@ export const AlphaPool: React.FC = () => {
 
           antdMessage.error('GA 실행이 실패했습니다');
         } else {
-          // 진행 중
           setNodeStates(prev => ({
             ...prev,
             'evolution-node': {
@@ -410,20 +362,60 @@ export const AlphaPool: React.FC = () => {
       }
     }, 1000);
 
-    setPollingInterval(interval);
-  }, []);
+    pollingRef.current = interval;
+  }, [setNodeStates]);
+
+  // GA 실행 함수
+  const handleRunGA = useCallback(async () => {
+    if (!nodeStates['ga-node'].completed) {
+      antdMessage.warning('GA 엔진 설정을 먼저 완료해주세요');
+      return;
+    }
+
+    const gaConfig = nodeStates['ga-node'].config || {};
+
+    try {
+      setNodeStates(prev => ({
+        ...prev,
+        'ga-node': { ...prev['ga-node'], status: 'running' },
+        'evolution-node': { ...prev['evolution-node'], status: 'running' },
+      }));
+
+      const payload = {
+        start_date: gaConfig.startDate || '',
+        end_date: gaConfig.endDate || '',
+        population_size: gaConfig.populationSize || 50,
+        generations: gaConfig.generations || 20,
+        max_alphas: gaConfig.maxAlphas || 5,
+        max_depth: gaConfig.maxDepth || 10,
+        rebalancing_frequency: gaConfig.rebalancing_frequency || 'monthly',
+        transaction_cost: gaConfig.transaction_cost || 0.001,
+        quantile: gaConfig.quantile || 0.1,
+      } as GAParams;
+
+      const data = await runGA(payload);
+
+      if (data.success && data.task_id) {
+        antdMessage.success('GA가 시작되었습니다!');
+        startPolling(data.task_id);
+      } else {
+        throw new Error('GA 시작 실패');
+      }
+    } catch (error) {
+      console.error('GA 실행 오류:', error);
+      antdMessage.error('GA 실행 중 오류가 발생했습니다');
+      setNodeStates(prev => ({
+        ...prev,
+        'ga-node': { ...prev['ga-node'], status: 'failed' },
+        'evolution-node': { ...prev['evolution-node'], status: 'failed' },
+      }));
+    }
+  }, [nodeStates, setNodeStates, startPolling]);
 
   // 알파 저장
   const handleSaveAlphas = useCallback(async (selectedAlphas: any[]) => {
     try {
-      const response = await fetch('http://localhost:5002/api/user-alpha/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ alphas: selectedAlphas }),
-      });
-
-      const data = await response.json();
+      const data = await saveUserAlphas(selectedAlphas);
 
       if (data.success) {
         antdMessage.success(`${selectedAlphas.length}개의 알파가 저장되었습니다!`);
@@ -438,7 +430,7 @@ export const AlphaPool: React.FC = () => {
 
   // 노드 및 엣지 업데이트
   useEffect(() => {
-    const updatedNodes = nodes.map(node => ({
+    setNodes(prevNodes => prevNodes.map(node => ({
       ...node,
       data: {
         label: createNodeContent(
@@ -450,12 +442,12 @@ export const AlphaPool: React.FC = () => {
         ),
       },
       className: nodeStates[node.id]?.completed ? 'completed' : '',
-    }));
+    })));
 
-    const updatedEdges = edges.map(edge => {
+    setEdges(prevEdges => prevEdges.map(edge => {
       const isCompleted = nodeStates[edge.source]?.completed;
       const isRunning = nodeStates[edge.source]?.status === 'running';
-      
+
       return {
         ...edge,
         className: isCompleted ? 'completed' : '',
@@ -467,20 +459,17 @@ export const AlphaPool: React.FC = () => {
           filter: `drop-shadow(0 0 8px ${theme.colors.accentGold})`,
         } : undefined,
       };
-    });
-
-    setNodes(updatedNodes);
-    setEdges(updatedEdges);
-  }, [nodeStates]);
+    }));
+  }, [nodeStates, setNodes, setEdges]);
 
   // 컴포넌트 언마운트 시 폴링 중지
   useEffect(() => {
     return () => {
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
       }
     };
-  }, [pollingInterval]);
+  }, []);
 
   return (
     <Container>

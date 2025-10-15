@@ -2250,6 +2250,151 @@ def csv_get_portfolio():
         logger.error(f"CSV 포트폴리오 조회 오류: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/csv/user/portfolio/add', methods=['POST'])
+def csv_add_portfolio_item():
+    """CSV 기반 포트폴리오에 종목 추가"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        if csv_manager is None:
+            return jsonify({'error': 'CSV 매니저가 초기화되지 않았습니다'}), 500
+        
+        data = request.get_json() or {}
+        ticker = str(data.get('ticker', '')).upper().strip()
+        company_name = data.get('company_name', '').strip() or ticker
+        quantity = int(data.get('quantity', 0))
+        price = float(data.get('price', 0))
+        sector = data.get('sector', '').strip()
+        current_price = data.get('current_price')
+        note = data.get('note', '포트폴리오 수동 추가')
+        
+        if not ticker or quantity <= 0 or price <= 0:
+            return jsonify({'error': '유효한 종목 코드, 수량, 가격을 입력해주세요'}), 400
+        
+        current_price_value = float(current_price) if current_price is not None else price
+        
+        trade_amount = quantity * price
+
+        investment = csv_manager.get_investment_data(user_id) or {}
+        current_cash = float(investment.get('cash', 0))
+
+        if current_cash < trade_amount:
+            return jsonify({'error': '보유 현금이 부족합니다'}), 400
+
+        success = csv_manager.add_to_portfolio(
+            user_id,
+            ticker,
+            company_name,
+            quantity,
+            price,
+            sector,
+            current_price=current_price_value
+        )
+
+        if not success:
+            return jsonify({'error': '포트폴리오 업데이트에 실패했습니다'}), 500
+
+        # 거래 내역 기록
+        csv_manager.add_transaction(
+            user_id,
+            '매수',
+            ticker=ticker,
+            quantity=quantity,
+            price=price,
+            amount=-trade_amount,
+            note=note
+        )
+
+        # 투자 데이터 업데이트
+        cash = current_cash - trade_amount
+        stock_value = csv_manager.calculate_portfolio_value(user_id)
+        total_assets = cash + stock_value
+        csv_manager.update_investment_data(
+            user_id,
+            total_assets=total_assets,
+            cash=cash,
+            stock_value=stock_value
+        )
+        
+        updated_portfolio = csv_manager.get_portfolio(user_id)
+        updated_investment = csv_manager.get_investment_data(user_id)
+        
+        return jsonify({
+            'success': True,
+            'message': '종목이 포트폴리오에 추가되었습니다',
+            'portfolio': updated_portfolio,
+            'investment': updated_investment
+        })
+        
+    except Exception as e:
+        logger.error(f"CSV 포트폴리오 추가 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/csv/user/portfolio/sell', methods=['POST'])
+def csv_sell_portfolio_item():
+    """CSV 기반 포트폴리오 종목 매도"""
+    try:
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({'error': '로그인이 필요합니다'}), 401
+        
+        if csv_manager is None:
+            return jsonify({'error': 'CSV 매니저가 초기화되지 않았습니다'}), 500
+        
+        data = request.get_json() or {}
+        ticker = str(data.get('ticker', '')).upper().strip()
+        quantity = int(data.get('quantity', 0))
+        price = float(data.get('price', 0))
+        note = data.get('note', '포트폴리오 수동 매도')
+        
+        if not ticker or quantity <= 0 or price <= 0:
+            return jsonify({'error': '유효한 종목 코드, 수량, 가격을 입력해주세요'}), 400
+        
+        trade_amount = quantity * price
+
+        success = csv_manager.remove_from_portfolio(user_id, ticker, quantity)
+        if not success:
+            return jsonify({'error': '보유 수량을 초과했거나 포트폴리오에서 찾을 수 없습니다'}), 400
+
+        # 거래 내역 기록
+        csv_manager.add_transaction(
+            user_id,
+            '매도',
+            ticker=ticker,
+            quantity=quantity,
+            price=price,
+            amount=trade_amount,
+            note=note
+        )
+
+        # 투자 데이터 업데이트
+        investment = csv_manager.get_investment_data(user_id) or {}
+        cash = float(investment.get('cash', 0)) + trade_amount
+        stock_value = csv_manager.calculate_portfolio_value(user_id)
+        total_assets = cash + stock_value
+        csv_manager.update_investment_data(
+            user_id,
+            total_assets=total_assets,
+            cash=cash,
+            stock_value=stock_value
+        )
+        
+        updated_portfolio = csv_manager.get_portfolio(user_id)
+        updated_investment = csv_manager.get_investment_data(user_id)
+        
+        return jsonify({
+            'success': True,
+            'message': '매도 처리가 완료되었습니다',
+            'portfolio': updated_portfolio,
+            'investment': updated_investment
+        })
+        
+    except Exception as e:
+        logger.error(f"CSV 포트폴리오 매도 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/csv/user/transactions', methods=['GET'])
 def csv_get_transactions():
     """CSV 기반 거래 내역 조회"""

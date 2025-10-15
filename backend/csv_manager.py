@@ -399,7 +399,8 @@ class CSVManager:
             return []
     
     def add_to_portfolio(self, user_id: str, ticker: str, company_name: str, 
-                        quantity: int, price: float, sector: str = "") -> bool:
+                        quantity: int, price: float, sector: str = "", 
+                        current_price: Optional[float] = None) -> bool:
         """포트폴리오에 종목을 추가합니다."""
         try:
             portfolios_df = pd.read_csv(self.portfolios_file, encoding='utf-8-sig')
@@ -421,6 +422,12 @@ class CSVManager:
                 
                 portfolios_df.loc[idx, 'quantity'] = new_qty
                 portfolios_df.loc[idx, 'avg_price'] = new_avg
+                if current_price is not None:
+                    portfolios_df.loc[idx, 'current_price'] = current_price
+                elif price is not None:
+                    portfolios_df.loc[idx, 'current_price'] = price
+                if sector:
+                    portfolios_df.loc[idx, 'sector'] = sector
                 portfolios_df.loc[idx, 'updated_at'] = datetime.now().isoformat()
             else:
                 # 새 종목 추가
@@ -431,7 +438,7 @@ class CSVManager:
                     'company_name': company_name,
                     'quantity': quantity,
                     'avg_price': price,
-                    'current_price': price,
+                    'current_price': current_price if current_price is not None else price,
                     'sector': sector,
                     'purchase_date': datetime.now().isoformat(),
                     'updated_at': datetime.now().isoformat()
@@ -462,7 +469,10 @@ class CSVManager:
             idx = existing.index[0]
             current_qty = portfolios_df.loc[idx, 'quantity']
             
-            if quantity >= current_qty:
+            if quantity > current_qty:
+                return False
+            
+            if quantity == current_qty:
                 # 전량 매도 - 삭제
                 portfolios_df = portfolios_df.drop(idx)
             else:
@@ -477,6 +487,19 @@ class CSVManager:
         except Exception as e:
             logger.error(f"포트폴리오 제거 오류: {str(e)}")
             return False
+
+    def calculate_portfolio_value(self, user_id: str) -> float:
+        """사용자의 포트폴리오 총 평가액을 계산합니다."""
+        try:
+            portfolios_df = pd.read_csv(self.portfolios_file, encoding='utf-8-sig')
+            user_portfolio = portfolios_df[portfolios_df['user_id'] == user_id]
+            if user_portfolio.empty:
+                return 0.0
+            values = user_portfolio['quantity'].astype(float) * user_portfolio['current_price'].astype(float)
+            return float(values.sum())
+        except Exception as e:
+            logger.error(f"포트폴리오 평가액 계산 오류: {str(e)}")
+            return 0.0
     
     # ==================== 거래 내역 ====================
     
@@ -591,4 +614,3 @@ class CSVManager:
         except Exception as e:
             logger.error(f"알파 삭제 오류: {str(e)}")
             return False
-

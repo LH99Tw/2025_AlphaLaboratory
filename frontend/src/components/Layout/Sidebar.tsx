@@ -81,14 +81,15 @@ const Logo = styled.div<{ $collapsed: boolean }>`
   transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   
   .logo-icon {
-    font-size: ${props => props.$collapsed ? '24px' : '32px'};
+    font-size: ${props => props.$collapsed ? '20px' : '28px'};
     transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-    color: ${props => props.$collapsed ? theme.colors.accentPrimary : theme.colors.textPrimary};
+    color: #FFFFFF;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: ${props => props.$collapsed ? '24px' : '32px'};
-    height: ${props => props.$collapsed ? '24px' : '32px'};
+    width: ${props => props.$collapsed ? '26px' : '34px'};
+    height: ${props => props.$collapsed ? '26px' : '34px'};
+    border-radius: 50%;
   }
   
   .logo-text {
@@ -105,7 +106,7 @@ const NavItem = styled.div<{ $active: boolean; $collapsed: boolean }>`
   align-items: center;
   justify-content: ${props => props.$collapsed ? 'center' : 'flex-start'};
   gap: ${props => props.$collapsed ? '0' : theme.spacing.md};
-  padding: ${props => props.$collapsed ? '8px' : '12px 16px'};
+  padding: ${props => props.$collapsed ? '6px' : '12px 16px'};
   border-radius: ${props => props.$collapsed ? '12px' : '12px'};
   color: ${(props: { $active: boolean }) => props.$active ? '#FFFFFF' : theme.colors.textSecondary};
   background: ${(props: { $active: boolean, $collapsed: boolean }) => 
@@ -123,9 +124,9 @@ const NavItem = styled.div<{ $active: boolean; $collapsed: boolean }>`
   font-weight: ${(props: { $active: boolean }) => props.$active ? '600' : '400'};
   position: relative;
   overflow: hidden;
-  min-height: ${props => props.$collapsed ? '36px' : '44px'};
-  width: ${props => props.$collapsed ? '36px' : 'auto'};
-  margin: ${props => props.$collapsed ? '0 auto' : '0'};
+  min-height: ${props => props.$collapsed ? '32px' : '44px'};
+  width: ${props => props.$collapsed ? '32px' : 'auto'};
+  margin: ${props => props.$collapsed ? '2px auto' : '0'};
   text-align: left;
 
   &:hover {
@@ -155,10 +156,10 @@ const NavItem = styled.div<{ $active: boolean; $collapsed: boolean }>`
   }
 
   .anticon {
-    font-size: ${props => props.$collapsed ? '18px' : '20px'};
-    min-width: ${props => props.$collapsed ? '18px' : '20px'};
-    width: ${props => props.$collapsed ? '18px' : '20px'};
-    height: ${props => props.$collapsed ? '18px' : '20px'};
+    font-size: ${props => props.$collapsed ? '16px' : '20px'};
+    min-width: ${props => props.$collapsed ? '16px' : '20px'};
+    width: ${props => props.$collapsed ? '16px' : '20px'};
+    height: ${props => props.$collapsed ? '16px' : '20px'};
     display: flex;
     align-items: center;
     justify-content: center;
@@ -178,7 +179,7 @@ const NavSection = styled.div<{ $collapsed: boolean }>`
   display: flex;
   flex-direction: column;
   align-items: ${props => props.$collapsed ? 'center' : 'stretch'};
-  gap: ${props => props.$collapsed ? '0' : '0'};
+  gap: ${props => props.$collapsed ? '4px' : '0'};
   
   /* 토글 상태에서 첫 번째 섹션은 마진 없음 */
   &:first-of-type {
@@ -306,7 +307,7 @@ export const Sidebar: React.FC = () => {
       
       {collapsed ? (
         // 토글 상태: 모든 아이템을 하나의 컨테이너에
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0', alignItems: 'center' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'center' }}>
           {menuItems.map(item => (
             <NavItem
               key={item.path}
@@ -466,4 +467,3 @@ export const Sidebar: React.FC = () => {
     </SidebarContainer>
   );
 };
-

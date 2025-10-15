@@ -158,7 +158,7 @@ const initialNodes: Node[] = [
     data: { 
       label: (
         <>
-          <NodeLabel>⚡ Alpha 001</NodeLabel>
+          <NodeLabel>⚡ 알파 001</NodeLabel>
           <NodeData>적합도: 0.85 | 순위: 1</NodeData>
         </>
       )
@@ -170,7 +170,7 @@ const initialNodes: Node[] = [
     data: { 
       label: (
         <>
-          <NodeLabel>⚡ Alpha 002</NodeLabel>
+          <NodeLabel>⚡ 알파 002</NodeLabel>
           <NodeData>적합도: 0.72 | 순위: 2</NodeData>
         </>
       )

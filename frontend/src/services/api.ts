@@ -16,6 +16,8 @@ const api = axios.create({
   },
 });
 
+api.defaults.withCredentials = true;
+
 // 🏥 시스템 상태 확인
 export const checkHealth = async () => {
   const response = await api.get('/api/health');
@@ -24,12 +26,12 @@ export const checkHealth = async () => {
 
 // 📈 백테스트 API
 export const runBacktest = async (params: BacktestParams): Promise<ApiResponse> => {
-  const response = await api.post('/api/backtest', params);
+  const response = await api.post('/api/backtest', params, { withCredentials: true });
   return response.data;
 };
 
 export const getBacktestStatus = async (taskId: string): Promise<BacktestStatus> => {
-  const response = await api.get(`/api/backtest/status/${taskId}`);
+  const response = await api.get(`/api/backtest/status/${taskId}`, { withCredentials: true });
   return response.data;
 };
 
@@ -72,8 +74,18 @@ export const chatWithAgent = async (message: string) => {
 };
 
 // 🧬 GA 알고리즘 API
-export const runGA = async (params: GAParams): Promise<ApiResponse> => {
-  const response = await api.post('/api/ga/run', params);
+export const runGA = async (params: GAParams): Promise<ApiResponse & { task_id?: string; status_url?: string }> => {
+  const response = await api.post('/api/ga/run', params, { withCredentials: true });
+  return response.data;
+};
+
+export const getGAStatus = async (taskId: string) => {
+  const response = await api.get(`/api/ga/status/${taskId}`, { withCredentials: true });
+  return response.data;
+};
+
+export const saveUserAlphas = async (alphas: Array<{ name: string; expression: string; fitness: number }>) => {
+  const response = await api.post('/api/user-alpha/save', { alphas }, { withCredentials: true });
   return response.data;
 };
 
@@ -89,4 +101,3 @@ export const getDataStats = async () => {
 };
 
 export default api;
-
