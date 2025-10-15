@@ -143,6 +143,19 @@ box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25), 0 12px 24px rgba(0, 0, 0, 0.12);
 - **Wave Motion**: 물결치는 듯한 배경 애니메이션
 - **화면 전체 그라데이션**: 중앙에서 시작하는 타원형 그라데이션 배경
 
+### 🕶️ 공간형 인터랙션 (Three.js 무드)
+- **3D Scene Canvas**: `Three.js` 또는 `@react-three/fiber` 기반의 풀스크린 레이어. 카메라 FOV 60°, 느린 Orbit 컨트롤링(자동 회전 속도 0.1).
+- **Depth Layering**: UI 앞단(Glass UI) ↔ 중단(Parallax 단어 벽) ↔ 후단(3D 파티클/메시)의 3단 레이어 구조로 Z-Index를 명확하게 정의.
+- **Shader Aesthetic**: 노이즈 기반 쉐이더(Perlin/Simplex)로 흐르는 골드 라인이 있는 신경망 느낌. 색상은 `#D4AF37` ~ `#8AB4F8` 범위 내에서만 사용.
+- **GPU Friendly**: 저사양 대비를 위해 폴리곤 수 6k 이하 유지, 파티클은 InstancedBufferGeometry 활용, `dpr` 최대 1.5.
+- **UX Safety**: `prefers-reduced-motion` 시 3D 레이어는 정적 이미지 또는 CSS 그라데이션으로 폴백.
+
+### 🛰️ 파라락스 & 단어 매트릭스
+- **Word Matrix Panel**: 세로 3~4열, 각 열마다 명사/동사/형용사 등 카테고리 라벨과 반복되는 키워드, 투명 배경 + 라이트 글로우.
+- **Orbit Scroll**: 스크롤 시 단어 열이 서로 다른 속도로 이동(`translateY` 속도 8/12/16px per 100vh), 3D 신경망은 반대 방향으로 느리게 회전.
+- **HUD Layer**: 우상단 실시간 지표(예: `07:25` 타임코드, `PEOPLE OPENING NOW` 텍스트)를 네오픽셀 스타일로 배치, 숫자는 페이드업 애니메이션.
+- **영상 오버레이**: 배경 영상은 소리 없는 루프, 감마 0.5 ~ 0.7로 낮춰 UI 대비 확보. 비디오 미지원 시 정적 이미지 폴백.
+
 ## [컴포넌트 디자인]
 ### 🧩 UI 컴포넌트 스타일
 - **Glass Cards**: `backdrop-filter: blur(10px)` + 투명 배경
@@ -318,6 +331,12 @@ chartColors = {
   backdrop-filter: blur(20px);
   border-right: 1px solid rgba(255, 255, 255, 0.1);
 }
+
+### 🧊 시네마틱 오버레이 컴포넌트
+- **`AmbientWordMatrix`**: 단어 열 + 카테고리 라벨을 그리드로 렌더링. 각 열은 `opacity` 0.6~0.9, 배경은 `linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0))`.
+- **`HoloStatTicker`**: 실시간 지표(시간, 총액, 사용자 수 등)를 `display: flex` 수평 정렬로 배치, 각 블록은 글로시한 캡슐 버튼 스타일.
+- **`NeuralField`**: Three.js 파티클 필드 또는 Canvas 기반 노이즈 필드. 상단 투명 HUD 위로 은은히 흐르며, 사용자 인터랙션은 마우스 위치 기반으로 미세하게 반응.
+- **`DataWell`**: 자산 요약 카드가 층층이 쌓인 구조. 첫 번째 카드는 액티브 상태로 글로우가 강조되고, 아래로 갈수록 투명도와 스케일이 줄어들어 깊이감 표현.
 
 .nav-item {
   color: #9AA0A6;  /* 일반 상태: 보조 텍스트 색상 */
