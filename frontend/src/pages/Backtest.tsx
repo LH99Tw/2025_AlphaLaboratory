@@ -9,6 +9,15 @@ import { theme } from '../styles/theme';
 import { runBacktest, getBacktestStatus, fetchUserAlphas } from '../services/api';
 import type { BacktestParams, BacktestStatus, BacktestResult } from '../types';
 import dayjs from 'dayjs';
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from 'recharts';
 
 const { RangePicker } = DatePicker;
 const BACKTEST_TASK_KEY = 'backtestTaskId';
@@ -176,6 +185,15 @@ const PlaceholderText = styled.p`
   color: ${theme.colors.textSecondary};
   text-align: center;
   margin: 0;
+`;
+
+const ChartContainer = styled.div`
+  height: 220px;
+  margin-bottom: ${theme.spacing.lg};
+  padding: ${theme.spacing.md};
+  background: ${theme.colors.backgroundSecondary};
+  border: 1px solid ${theme.colors.liquidGlassBorder};
+  border-radius: ${theme.borderRadius.lg};
 `;
 
 const BacktestPage: React.FC = () => {
@@ -465,6 +483,29 @@ const BacktestPage: React.FC = () => {
                 return (
                   <ResultCard key={factor}>
                     <ResultTitle>{displayFactor} 결과</ResultTitle>
+                    {result.cumulative_returns && result.cumulative_returns.length > 0 && (
+                      <ChartContainer>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={result.cumulative_returns}>
+                            <CartesianGrid stroke="rgba(255, 255, 255, 0.05)" strokeDasharray="3 3" />
+                            <XAxis
+                              dataKey="date"
+                              tick={{ fill: theme.colors.textSecondary }}
+                              minTickGap={30}
+                            />
+                            <YAxis
+                              tick={{ fill: theme.colors.textSecondary }}
+                              tickFormatter={(value) => `${(value * 100).toFixed(1)}%`}
+                            />
+                            <Tooltip
+                              formatter={(value: number) => `${(value as number * 100).toFixed(2)}%`}
+                              labelFormatter={(label: string) => `날짜: ${label}`}
+                            />
+                            <Line type="monotone" dataKey="value" stroke={theme.colors.accentPrimary} dot={false} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </ChartContainer>
+                    )}
                     <MetricRow>
                       <MetricLabel>연평균 수익률 (CAGR)</MetricLabel>
                       <MetricValue $positive={result.cagr > 0}>

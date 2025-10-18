@@ -221,7 +221,14 @@ class Node:
                     def f(ctx: Alphas):
                         a = left_f(ctx); b = right_f(ctx)
                         base_index = getattr(ctx.close, "index", None)
-                        base_columns = getattr(ctx.close, "columns", None)
+
+                        # ctx.close가 시리즈인지 데이터프레임인지 확인
+                        if hasattr(ctx.close, "columns"):
+                            base_columns = ctx.close.columns
+                        else:
+                            # 시리즈인 경우 단일 컬럼으로 처리
+                            base_columns = [ctx.close.name] if hasattr(ctx.close, "name") else None
+
                         try:
                             if hasattr(a, "align") and hasattr(b, "align"):
                                 a, b = a.align(b, join="inner", axis=0)

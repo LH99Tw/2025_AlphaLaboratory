@@ -25,11 +25,16 @@
   주요 이벤트(입금, 매수, 매도) 시 자동 코멘트 작성 및 Log 연동.
   장기적으로 백테스트/GA 결과와 자산 변동을 연계한 대시보드 제공.
 
+- 진화알고리즘 검증
+  실제로 설정한대로 진화 알고리즘이 수행되고 있는 것인지 검증이 필요함.
+  더미데이터를 사용해서 그냥 출력하는게 아닌지 의심됨.
+
+
 - alpha-incubator 페이지 수정
   해당 페이지는 Langchain과 MCTS를 활용해 새로운 알파를 생성할 수 있는 페이지이다.
   'papers/LLM과 MCTS.pdf' 를 참고해서 기술을 구현해보자.
   우선, allama를 활용할 건데, $ollama list 를 입력했을 때 나오는 
-  
+
   NAME                    ID              SIZE      MODIFIED     
  korean-qwen:latest      6df54155b56c    8.1 GB    4 hours ago  
   모델을 베이스로 개발을 진행한다.

@@ -1105,3 +1105,8 @@ allowed_fields = ['name', 'email', 'profile_emoji']
     - `/api/backtest`가 세션 사용자의 레지스트리에서 공용·개인 알파를 불러와 직접 팩터를 계산하도록 개선해 CSV에 없는 개인 알파도 즉시 백테스트할 수 있습니다. (`backend/app.py`, `alphas/base.py`, `alphas/transpiler.py`)
     - 백테스트 진행률·로그를 API 상태 객체에 누적하고, 작업 ID를 보존해 페이지 이동 후에도 폴링을 재개할 수 있게 했습니다. (`backend/app.py`)
     - 프론트의 Backtest 페이지는 알파 목록을 그룹화하여 표시하고, 진행 카드에 실시간 로그·작업 ID·진행률 바를 추가했습니다. 레이아웃도 수정해 푸터가 가려지지 않고 좌우 패널이 정렬됩니다. (`frontend/src/pages/Backtest.tsx`, `frontend/src/components/common/GlassInput.tsx`, `frontend/src/types/index.ts`)
+
+[27](20251019):GA 결과 백테스트 실데이터 연동 및 누적 수익률 정합성 보완
+    - `calculate_factor_performance` 유틸을 추가해 리밸런싱 주기·보유일수 기반 지표 계산을 공통화하고, 포트폴리오 성과 API가 동일 로직을 사용하도록 리팩토링했습니다. (`backend/app.py`)
+    - `/api/ga/backtest/<task_id>`가 GA가 생성한 표현식을 트랜스파일해 실제 시세 데이터로 백테스트하도록 비동기 처리와 상태 저장을 구현하여, 랜덤 더미 결과 없이 완료 후에도 `/api/backtest/status/<id>`로 재확인할 수 있게 했습니다. (`backend/app.py`)
+    - Backtest 페이지 누적 수익률 그래프가 롤링 CAGR 대신 `cumulative_returns`를 사용해 첫 지점을 항상 0%로 표시하도록 수정했습니다. (`frontend/src/pages/Backtest.tsx`)

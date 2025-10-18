@@ -28,6 +28,7 @@ export interface BacktestResult {
   volatility: number;
   total_return?: number;
   cumulative_returns?: Array<{ date: string; value: number }>;
+  cagr_series?: Array<{ date: string; value: number }>;
 }
 
 // 💼 포트폴리오 종목 (실제 데이터베이스 구조)
