@@ -13,12 +13,13 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { GlassButton } from '../components/common/GlassButton';
+import { GlassCard } from '../components/common/GlassCard';
 import { theme } from '../styles/theme';
 import { PlayCircleOutlined } from '@ant-design/icons';
 import { NodeConfigModal } from '../components/AlphaFactory/NodeConfigModal';
 import { AlphaListPanel } from '../components/AlphaFactory/AlphaListPanel';
 import { message as antdMessage } from 'antd';
-import { runGA, getGAStatus, saveUserAlphas } from '../services/api';
+import { runGA, getGAStatus, saveUserAlphas, fetchUserAlphas } from '../services/api';
 import { GAParams } from '../types';
 
 const Container = styled.div`
@@ -45,6 +46,68 @@ const Description = styled.p`
   color: ${theme.colors.textSecondary};
   margin: ${theme.spacing.sm} 0 0 0;
   font-size: ${theme.typography.fontSize.body};
+`;
+
+const SummaryContainer = styled(GlassCard)`
+  display: flex;
+  flex-direction: column;
+  gap: ${theme.spacing.sm};
+  padding: ${theme.spacing.lg};
+`;
+
+const SummaryHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+`;
+
+const SummaryTitle = styled.h2`
+  margin: 0;
+  font-size: ${theme.typography.fontSize.h4};
+  color: ${theme.colors.textPrimary};
+  font-weight: 600;
+`;
+
+const SummaryStats = styled.span`
+  color: ${theme.colors.textSecondary};
+  font-size: ${theme.typography.fontSize.caption};
+`;
+
+const SummaryList = styled.ul`
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: ${theme.spacing.sm};
+`;
+
+const SummaryItem = styled.li`
+  background: ${theme.colors.liquidGlass};
+  border: 1px solid ${theme.colors.liquidGlassBorder};
+  border-radius: 12px;
+  padding: ${theme.spacing.md};
+  display: flex;
+  flex-direction: column;
+  gap: ${theme.spacing.xs};
+`;
+
+const SummaryName = styled.span`
+  font-weight: 600;
+  color: ${theme.colors.textPrimary};
+  font-size: ${theme.typography.fontSize.body};
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+const SummaryExpression = styled.span`
+  color: ${theme.colors.textSecondary};
+  font-size: ${theme.typography.fontSize.caption};
+  font-family: ${theme.typography.fontFamily.display};
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 `;
 
 const FlowSection = styled.div`
@@ -260,6 +323,11 @@ export const AlphaPool: React.FC = () => {
 
   // 최종 알파 리스트
   const [alphaList, setAlphaList] = useState<any[]>([]);
+  const [alphaSummary, setAlphaSummary] = useState<{ sharedCount: number; privateCount: number }>({
+    sharedCount: 0,
+    privateCount: 0,
+  });
+  const [personalAlphas, setPersonalAlphas] = useState<Array<{ id: string; name: string; expression: string }>>([]);
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -377,6 +445,26 @@ export const AlphaPool: React.FC = () => {
     pollingRef.current = interval;
   }, [setNodeStates]);
 
+  const loadUserAlphas = useCallback(async () => {
+    try {
+      const data = await fetchUserAlphas();
+      const sharedCount = data.summary?.shared_count ?? data.shared_alphas?.length ?? 0;
+      const privateCount = data.summary?.private_count ?? data.private_alphas?.length ?? 0;
+      setAlphaSummary({ sharedCount, privateCount });
+
+      const privateEntries = Array.isArray(data.private_alphas) ? data.private_alphas : [];
+      setPersonalAlphas(
+        privateEntries.map((alpha: any) => ({
+          id: alpha.id ?? alpha.name ?? alpha.expression,
+          name: alpha.name ?? alpha.id ?? 'Unnamed Alpha',
+          expression: alpha.expression ?? '',
+        }))
+      );
+    } catch (error) {
+      console.error('사용자 알파 조회 실패:', error);
+    }
+  }, []);
+
   // GA 실행 함수
   const handleRunGA = useCallback(async () => {
     if (!nodeStates['ga-node'].completed) {
@@ -439,6 +527,7 @@ export const AlphaPool: React.FC = () => {
         );
         const savedCount = data.summary?.private_count ?? selectedAlphas.length;
         antdMessage.success(`${selectedAlphas.length}개의 알파가 저장되었습니다! (총 ${savedCount}개 보유)`);
+        loadUserAlphas();
       } else {
         throw new Error(data.error || '저장 실패');
       }
@@ -446,7 +535,7 @@ export const AlphaPool: React.FC = () => {
       console.error('알파 저장 오류:', error);
       antdMessage.error(error.message || '알파 저장 중 오류가 발생했습니다');
     }
-  }, []);
+  }, [loadUserAlphas]);
 
   // 노드 및 엣지 업데이트
   useEffect(() => {
@@ -491,6 +580,10 @@ export const AlphaPool: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    loadUserAlphas();
+  }, [loadUserAlphas]);
+
   return (
     <Container>
       <TopSection>
@@ -510,6 +603,32 @@ export const AlphaPool: React.FC = () => {
           {nodeStates['evolution-node'].status === 'running' ? 'GA 실행 중...' : 'GA 실행'}
         </GlassButton>
       </TopSection>
+
+      <SummaryContainer>
+        <SummaryHeader>
+          <SummaryTitle>알파 저장 현황</SummaryTitle>
+          <SummaryStats>
+            공유 알파 {alphaSummary.sharedCount}개 · 개인 알파 {alphaSummary.privateCount}개
+          </SummaryStats>
+        </SummaryHeader>
+
+        {personalAlphas.length === 0 ? (
+          <div style={{ color: theme.colors.textSecondary, fontSize: theme.typography.fontSize.caption }}>
+            아직 저장된 개인 알파가 없습니다. GA로 생성한 알파를 저장하면 여기에 표시됩니다.
+          </div>
+        ) : (
+          <SummaryList>
+            {personalAlphas.slice(0, 6).map(alpha => (
+              <SummaryItem key={alpha.id}>
+                <SummaryName title={alpha.name}>{alpha.name}</SummaryName>
+                <SummaryExpression title={alpha.expression}>
+                  {alpha.expression || '식 정보 없음'}
+                </SummaryExpression>
+              </SummaryItem>
+            ))}
+          </SummaryList>
+        )}
+      </SummaryContainer>
 
       <FlowSection>
         <FlowContainer>

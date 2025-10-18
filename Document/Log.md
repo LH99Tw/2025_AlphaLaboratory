@@ -1095,3 +1095,8 @@ allowed_fields = ['name', 'email', 'profile_emoji']
     - `/api/user-alpha/save|list|delete`가 단일 응답 스키마(`shared_alphas`, `private_alphas`, `summary`)를 반환하도록 리팩터링하고, Dashboard/AlphaPool에서 즉시 반영되도록 API 연동을 일원화했습니다. (`backend/app.py`, `frontend/src/services/api.ts`)
     - Dashboard 알파 탭 UI를 디자인 문서 기준으로 재정비하고, 개인/공용 알파 분리·카드 카운트·편집/삭제 흐름을 정상화했습니다. (`frontend/src/pages/Dashboard.tsx`)
     - AlphaPool 저장 패널은 선택 상태 초기화·피드백 문구 정교화로 UX를 개선하고 Null fitness도 안전하게 처리합니다. (`frontend/src/pages/AlphaPool.tsx`, `frontend/src/components/AlphaFactory/AlphaListPanel.tsx`)
+
+[25](20250117):GA 적합도 안정화 및 AlphaPool 개인화 현황 연동
+    - AutoAlphaGA 초기 워밍스타트 후보 수 제한 버그를 수정하고, 안전한 나눗셈·입력 정렬·자산축 PCA 벡터·정보비율 클램핑으로 수만 단위 적합도 폭주 문제를 차단했습니다. (`GA_algorithm/autoalpha_ga.py`)
+    - `correlation` 연산은 인덱스/컬럼 교집합 정렬 후 계산하며, `FitnessMetrics` 정보비율은 변동성 바닥값(0.02) 적용과 ±10 범위로 제한해 수치 안정성을 확보했습니다. (`GA_algorithm/autoalpha_ga.py`)
+    - AlphaPool 상단에 공유/개인 알파 현황 카드와 최근 개인 알파 목록을 추가하고, 저장 직후 AlphaStore 집계가 자동 새로고침되도록 연동했습니다. (`frontend/src/pages/AlphaPool.tsx`)
