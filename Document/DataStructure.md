@@ -103,10 +103,6 @@ sector_summary = user_portfolio.groupby('sector').agg({
 }
 ```
 
-**AlphaStore 병행 사용**  
-- 프론트/백엔드의 최신 알파 관리 기능은 `database/alpha_store/private/<username>.json` 파일을 1차 저장소로 사용합니다.  
-- CSV 파일은 CSVManager 기반 레거시/관리 도구와의 연동을 위해 유지되며, 정규 사용자 알파는 AlphaStore → CSV 동기화가 필요할 때에만 기록합니다.
-
 ---
 
 ## 5. transactions.csv - 거래 내역
@@ -232,16 +228,6 @@ database/
     ├── transactions.csv
     └── asset_history.csv
 ```
-
-알파 전용 저장소는 `database/alpha_store/`에 위치합니다:
-```
-database/
-└── alpha_store/
-    ├── shared.json
-    └── private/
-        └── <username>.json
-```
-- 최초 실행 시 `database/userdata/user_alphas.json` 이 존재하면 `private/<username>.json` 으로 자동 마이그레이션됩니다.
 
 ---
 
