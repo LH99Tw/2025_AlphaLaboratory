@@ -123,43 +123,23 @@
 - 완료된 노드 간 엣지 스타일 변경 (회색 → 흰색)
 
 ### 4. 최종 알파 리스트 및 저장
-**현황**: 완전히 미구현  
-**필요**:
-- 노드 그래프 하단에 리스트 컴포넌트
-- 각 알파별:
-  - 체크박스 (선택)
-  - 이름 (인라인 편집 가능)
-  - 알파 수식 (표시)
-- "저장" 버튼
-- UserAlpha.json 저장 API
-  ```json
-  {
-    "users": [
-      {
-        "username": "user1",
-        "alphas": [
-          {
-            "id": "alpha_001",
-            "name": "모멘텀 전략",
-            "expression": "ts_rank(close, 20)",
-            "fitness": 0.85,
-            "created_at": "2025-01-15T..."
-          }
-        ]
-      }
-    ]
-  }
-  ```
+**현황**: 구현 완료 (2025-01-17)  
+**결과**:
+- 노드 그래프 하단 `AlphaListPanel` 컴포넌트 배치
+- 체크박스/인라인 이름 편집/수식 툴팁/적합도 표시 적용
+- 선택한 알파는 금색 하이라이트 + 저장 버튼 활성화
 
 ### 5. UserAlpha 관리 시스템
-**현황**: 파일 및 API 미구현  
-**필요**:
-- `database/userdata/user_alphas.json` 생성
+**현황**: `AlphaStore` 기반으로 구현 완료 (2025-01-17)  
+**구성**:
+- 저장소: `database/alpha_store/`
+  - `shared.json` (공용 알파) + `private/<username>.json` (개인 알파)
+  - 최초 실행 시 `database/userdata/user_alphas.json` → private 파일로 자동 마이그레이션
 - 백엔드 API:
-  - `POST /api/user-alpha/save` - 알파 저장
-  - `GET /api/user-alpha/list` - 내 알파 목록
-  - `DELETE /api/user-alpha/delete/<alpha_id>` - 알파 삭제
-  - `PUT /api/user-alpha/update/<alpha_id>` - 알파 수정
+  - `POST /api/user-alpha/save` : 수식 검증 후 개인 저장소에 추가, 최신 정의 목록 반환
+  - `GET /api/user-alpha/list` : 개인/공용 알파 메타데이터 동시 제공
+  - `DELETE /api/user-alpha/delete/<alpha_id>` : 개인 알파 삭제 후 최신 목록 반환
+- 실행 시 `alphas.registry.AlphaRegistry` 가 공유 WorldQuant 101 + 사용자 정의를 하나의 네임스페이스로 제공
 
 ---
 
@@ -297,48 +277,35 @@ const AlphaListPanel = ({ alphas, onSave }) => {
 @app.route('/api/user-alpha/save', methods=['POST'])
 def save_user_alpha():
     """사용자 알파 저장"""
-    try:
-        if 'username' not in session:
-            return jsonify({'error': '로그인이 필요합니다'}), 401
-        
-        data = request.get_json()
-        username = session['username']
-        alphas = data.get('alphas', [])
-        
-        # UserAlpha 파일 로드
-        user_alpha_file = os.path.join(PROJECT_ROOT, 'database', 'userdata', 'user_alphas.json')
-        
-        if os.path.exists(user_alpha_file):
-            with open(user_alpha_file, 'r') as f:
-                user_alphas_data = json.load(f)
-        else:
-            user_alphas_data = {'users': []}
-        
-        # 사용자 찾기 또는 생성
-        user_entry = next((u for u in user_alphas_data['users'] if u['username'] == username), None)
-        if not user_entry:
-            user_entry = {'username': username, 'alphas': []}
-            user_alphas_data['users'].append(user_entry)
-        
-        # 알파 추가
-        for alpha in alphas:
-            alpha['id'] = f"alpha_{int(time.time())}_{secrets.token_hex(4)}"
-            alpha['created_at'] = datetime.now().isoformat()
-            user_entry['alphas'].append(alpha)
-        
-        # 저장
-        with open(user_alpha_file, 'w') as f:
-            json.dump(user_alphas_data, f, indent=2)
-        
-        return jsonify({
-            'success': True,
-            'message': f'{len(alphas)}개의 알파가 저장되었습니다',
-            'saved_alphas': alphas
-        })
-        
-    except Exception as e:
-        logger.error(f"알파 저장 오류: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+    alpha_store = AlphaStore(
+        os.path.join(PROJECT_ROOT, 'database', 'alpha_store'),
+        legacy_user_file=os.path.join(PROJECT_ROOT, 'database', 'userdata', 'user_alphas.json')
+    )
+
+    stored_items = alpha_store.add_private(username, [
+        {
+            "name": alpha_name,
+            "expression": expression,
+            "metadata": {
+                "fitness": payload.get("fitness"),
+                "transpiler_version": transpiled.version,
+                "python_source": transpiled.python_source
+            }
+        }
+        for payload in alphas
+    ])
+
+    registry = build_shared_registry(alpha_store).clone()
+    registry.extend(alpha_store.load_private_definitions(username), overwrite=True)
+
+    return jsonify({
+        "success": True,
+        "saved_alphas": [item.to_dict() for item in stored_items],
+        "private_definitions": [
+            serialize_alpha_definition(defn)
+            for defn in registry.list(owner=username)
+        ]
+    })
 ```
 
 ### Phase 4: 백엔드 모듈 검증 (우선순위: 낮음)
@@ -358,19 +325,19 @@ def save_user_alpha():
 ## [🎯 우선순위별 작업 순서]
 
 ### 1순위: AlphaIncubator 노드 시스템
-- [ ] 노드 더블클릭 → 모달 열기
-- [ ] 노드별 설정 패널 구현
-- [ ] 노드 간 데이터 전달 로직
+- [x] 노드 더블클릭 → 모달 열기
+- [x] 노드별 설정 패널 구현
+- [x] 노드 간 데이터 전달 로직
 
 ### 2순위: GA 실행 워크플로우
-- [ ] 노드 3에서 GA 실행
-- [ ] 노드 4에서 진행률 표시
-- [ ] 노드 5에서 결과 표시
+- [x] 노드 3에서 GA 실행
+- [x] 노드 4에서 진행률 표시
+- [x] 노드 5에서 결과 표시
 
 ### 3순위: 최종 알파 관리
-- [ ] 알파 리스트 UI
-- [ ] UserAlpha 저장 API
-- [ ] 내 알파 조회/삭제/수정 API
+- [x] 알파 리스트 UI
+- [x] UserAlpha 저장 API
+- [x] 내 알파 조회/삭제/수정 API
 
 ### 4순위: 전체 통합 테스트
 - [ ] 데이터 로드 → GA 실행 → 결과 저장 전체 플로우 테스트

@@ -1,8 +1,14 @@
-import pandas as pd
-import numpy as np
 import os
-from datetime import datetime
 import warnings
+from datetime import datetime
+from typing import Optional
+
+import numpy as np
+import pandas as pd
+
+from alphas import AlphaDataset, AlphaExecutionError, build_shared_registry
+from alphas.registry import AlphaRegistry
+
 warnings.filterwarnings('ignore')
 
 # 데이터베이스 폴더 경로 설정
@@ -13,9 +19,11 @@ output_filename = os.path.join(database_path, "sp500_with_alphas.csv")
 class AlphaCalculator:
     """101개 알파 팩터 계산 클래스"""
     
-    def __init__(self, csv_path: str):
+    def __init__(self, csv_path: str, registry: Optional[AlphaRegistry] = None):
         self.csv_path = csv_path
         self.df = None
+        self.registry = registry or build_shared_registry()
+        self.shared_definitions = self.registry.list(source='shared')
         
     def load_data(self) -> bool:
         """CSV 파일 로드"""
@@ -39,6 +47,9 @@ class AlphaCalculator:
         data['S_DQ_VOLUME'] = ticker_data['Volume']
         data['S_DQ_AMOUNT'] = ticker_data['Volume'] * ticker_data['Close']  # 거래대금
         data['S_DQ_PCTCHANGE'] = ticker_data['Close'].pct_change()  # 수익률
+        with np.errstate(divide='ignore', invalid='ignore'):
+            vwap = data['S_DQ_AMOUNT'] / data['S_DQ_VOLUME'].replace(0, np.nan)
+        data['S_DQ_VWAP'] = vwap.fillna(method='ffill').fillna(method='bfill').fillna(0)
         
         return data
     
@@ -54,51 +65,33 @@ class AlphaCalculator:
             # 알파 계산을 위한 데이터 준비
             alpha_data = self.prepare_data_for_alpha(ticker_data)
             
-            # 알파 계산
-            from Alphas import Alphas
-            alpha_calculator = Alphas(alpha_data)
+            dataset = AlphaDataset(alpha_data)
             
-            # 101개 알파 계산
             alphas = {}
-            
-            # Alpha 1-101 계산
-            alpha_methods = [
-                'alpha001', 'alpha002', 'alpha003', 'alpha004', 'alpha005',
-                'alpha006', 'alpha007', 'alpha008', 'alpha009', 'alpha010',
-                'alpha011', 'alpha012', 'alpha013', 'alpha014', 'alpha015',
-                'alpha016', 'alpha017', 'alpha018', 'alpha019', 'alpha020',
-                'alpha021', 'alpha022', 'alpha023', 'alpha024', 'alpha025',
-                'alpha026', 'alpha027', 'alpha028', 'alpha029', 'alpha030',
-                'alpha031', 'alpha032', 'alpha033', 'alpha034', 'alpha035',
-                'alpha036', 'alpha037', 'alpha038', 'alpha039', 'alpha040',
-                'alpha041', 'alpha042', 'alpha043', 'alpha044', 'alpha045',
-                'alpha046', 'alpha047', 'alpha049', 'alpha050', 'alpha051',
-                'alpha052', 'alpha053', 'alpha054', 'alpha055', 'alpha057',
-                'alpha060', 'alpha061', 'alpha062', 'alpha064', 'alpha065',
-                'alpha066', 'alpha068', 'alpha071', 'alpha072', 'alpha073',
-                'alpha074', 'alpha075', 'alpha077', 'alpha078', 'alpha081',
-                'alpha083', 'alpha084', 'alpha085', 'alpha086', 'alpha088',
-                'alpha092', 'alpha094', 'alpha095', 'alpha096', 'alpha098',
-                'alpha099', 'alpha101'
-            ]
-            
-            for method_name in alpha_methods:
+
+            for definition in self.shared_definitions:
+                method_name = definition.name
                 try:
-                    method = getattr(alpha_calculator, method_name)
-                    alpha_values = method()
-                    
-                    # Series가 아닌 경우 처리
-                    if not isinstance(alpha_values, pd.Series):
-                        if isinstance(alpha_values, pd.DataFrame):
-                            alpha_values = alpha_values.iloc[:, 0]
-                        else:
-                            alpha_values = pd.Series(alpha_values, index=ticker_data.index)
-                    
-                    alphas[method_name] = alpha_values
-                    
-                except Exception as e:
+                    alpha_values = self.registry.compute(method_name, dataset)
+                except AlphaExecutionError as exc:
+                    print(f"    {method_name} 계산 실패: {exc}")
+                    alpha_values = pd.Series(np.nan, index=ticker_data.index)
+                except Exception as e:  # pragma: no cover - defensive
                     print(f"    {method_name} 계산 실패: {e}")
                     alphas[method_name] = pd.Series(np.nan, index=ticker_data.index)
+                    continue
+
+                # Series가 아닌 경우 처리
+                if not isinstance(alpha_values, pd.Series):
+                    if isinstance(alpha_values, pd.DataFrame):
+                        alpha_values = alpha_values.iloc[:, 0]
+                    else:
+                        alpha_values = pd.Series(alpha_values, index=ticker_data.index)
+
+                if not alpha_values.index.equals(ticker_data.index):
+                    alpha_values = alpha_values.reindex(ticker_data.index).ffill().bfill()
+
+                alphas[method_name] = alpha_values
             
             # 결과를 DataFrame으로 변환
             result_df = ticker_data[['Date', 'Ticker']].copy()

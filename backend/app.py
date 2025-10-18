@@ -17,6 +17,7 @@ import json
 import logging
 import hashlib
 import secrets
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
@@ -27,6 +28,13 @@ import threading
 import time
 from user_database import UserDatabase
 from csv_manager import CSVManager
+from alphas import (
+    AlphaRegistry,
+    AlphaStore,
+    AlphaTranspilerError,
+    build_shared_registry,
+    compile_expression,
+)
 
 def load_real_data_for_ga():
     """GA를 위한 실제 데이터 로드"""
@@ -224,6 +232,13 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, 'GA_algorithm'))
 sys.path.insert(0, os.path.join(PROJECT_ROOT, 'Langchain'))
 sys.path.insert(0, os.path.join(PROJECT_ROOT, 'database'))
 
+# Alpha 저장소 및 공용 레지스트리 초기화
+ALPHA_STORE = AlphaStore(
+    os.path.join(PROJECT_ROOT, 'database', 'alpha_store'),
+    legacy_user_file=os.path.join(PROJECT_ROOT, 'database', 'userdata', 'user_alphas.json')
+)
+SHARED_ALPHA_REGISTRY = build_shared_registry(ALPHA_STORE)
+
 # Flask 앱 초기화
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)  # 세션용 비밀키
@@ -245,6 +260,42 @@ csv_manager = None
 task_status = {}
 backtest_status = {}
 ga_status = {}
+
+
+def get_alpha_registry(username: Optional[str] = None) -> AlphaRegistry:
+    """Return a registry that merges shared alphas with the user's private ones."""
+    registry = SHARED_ALPHA_REGISTRY.clone()
+    if username:
+        try:
+            registry.extend(ALPHA_STORE.load_private_definitions(username), overwrite=True)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning("사용자 알파 로드 실패 (%s): %s", username, exc)
+    return registry
+
+
+def serialize_alpha_definition(definition) -> Dict[str, Any]:
+    """Convert an AlphaDefinition into a serializable dict."""
+    payload = definition.as_dict()
+    payload["name"] = definition.name
+    payload["metadata"] = dict(payload.get("metadata", {}))
+    return payload
+
+
+@app.route('/api/alphas/shared', methods=['GET'])
+def get_shared_alphas():
+    """공용 알파 목록 조회 (인증 불필요)"""
+    try:
+        shared_definitions = [serialize_alpha_definition(defn) for defn in SHARED_ALPHA_REGISTRY.list(source='shared')]
+
+        return jsonify({
+            'success': True,
+            'alphas': shared_definitions,
+            'total_count': len(shared_definitions)
+        })
+
+    except Exception as e:
+        logger.error(f"공용 알파 목록 조회 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 # 사용자 인증 관련 함수들
 def load_users():
@@ -1269,29 +1320,26 @@ def chat_with_agent():
 def get_factors():
     """사용 가능한 알파 팩터 목록 조회"""
     try:
-        # sp500_with_alphas.csv에서 알파 컬럼 추출
-        alpha_file = os.path.join(PROJECT_ROOT, 'database', 'sp500_with_alphas.csv')
-        
-        if not os.path.exists(alpha_file):
-            # 파일이 없으면 기본 알파 목록 제공
-            alpha_columns = [f'alpha{i:03d}' for i in range(1, 102) if i not in [48, 56, 58, 59, 63, 67, 69, 70, 76, 79, 80, 82, 87, 89, 90, 91, 93, 97, 100]]
-            logger.warning(f"알파 데이터 파일을 찾을 수 없어 기본 목록을 사용합니다: {alpha_file}")
-        else:
-            try:
-                # 첫 번째 행만 읽어서 컬럼명 확인
-                df = pd.read_csv(alpha_file, nrows=1)
-                
-                # alpha로 시작하는 컬럼들 추출
-                alpha_columns = [col for col in df.columns if col.startswith('alpha')]
-            except Exception as e:
-                # 읽기 실패 시 기본 목록 제공
+        definitions = SHARED_ALPHA_REGISTRY.list(source='shared')
+        alpha_columns = [definition.name for definition in definitions]
+
+        if not alpha_columns:
+            # 레지스트리가 비어있는 것은 비정상 상황이므로 기존 CSV 기반 fallback 유지
+            alpha_file = os.path.join(PROJECT_ROOT, 'database', 'sp500_with_alphas.csv')
+            if os.path.exists(alpha_file):
+                try:
+                    df = pd.read_csv(alpha_file, nrows=1)
+                    alpha_columns = [col for col in df.columns if col.startswith('alpha')]
+                except Exception as e:
+                    logger.warning("CSV 기반 알파 목록 추출 실패: %s", e)
+            if not alpha_columns:
                 alpha_columns = [f'alpha{i:03d}' for i in range(1, 102) if i not in [48, 56, 58, 59, 63, 67, 69, 70, 76, 79, 80, 82, 87, 89, 90, 91, 93, 97, 100]]
-                logger.warning(f"알파 데이터 파일 읽기 실패로 기본 목록을 사용합니다: {e}")
         
         return jsonify({
             'success': True,
             'factors': alpha_columns,
-            'total_count': len(alpha_columns)
+            'total_count': len(alpha_columns),
+            'metadata': [serialize_alpha_definition(defn) for defn in definitions]
         })
         
     except Exception as e:
@@ -1721,49 +1769,66 @@ def get_portfolio_performance():
 def save_user_alpha():
     """사용자 알파 저장"""
     try:
-        if 'username' not in session:
+        username = session.get('username')
+        if not username:
             return jsonify({'error': '로그인이 필요합니다'}), 401
         
-        data = request.get_json()
-        username = session['username']
+        data = request.get_json() or {}
         alphas = data.get('alphas', [])
         
         if not alphas:
             return jsonify({'error': '저장할 알파가 없습니다'}), 400
         
-        # UserAlpha 파일 경로
-        user_alpha_file = os.path.join(PROJECT_ROOT, 'database', 'userdata', 'user_alphas.json')
+        compiled_records = []
+        errors = []
+        for index, alpha in enumerate(alphas, start=1):
+            expression = (alpha.get('expression') or '').strip()
+            alpha_name = (alpha.get('name') or f'{username}_alpha_{index:03d}').strip()
+            
+            if not expression:
+                errors.append(f"{alpha_name}: 알파 수식이 비어 있습니다")
+                continue
+            
+            try:
+                transpiled = compile_expression(expression, name=alpha_name)
+            except AlphaTranspilerError as exc:
+                errors.append(f"{alpha_name}: {exc}")
+                continue
+            
+            metadata = {}
+            if 'fitness' in alpha and alpha['fitness'] is not None:
+                metadata['fitness'] = alpha['fitness']
+            if 'notes' in alpha and alpha['notes']:
+                metadata['notes'] = alpha['notes']
+            
+            metadata['transpiler_version'] = transpiled.version
+            metadata['python_source'] = transpiled.python_source
+            
+            compiled_records.append({
+                'name': alpha_name,
+                'expression': expression,
+                'description': alpha.get('description', ''),
+                'tags': alpha.get('tags', []),
+                'metadata': metadata,
+            })
         
-        # 파일 로드 또는 생성
-        if os.path.exists(user_alpha_file):
-            with open(user_alpha_file, 'r', encoding='utf-8') as f:
-                user_alphas_data = json.load(f)
-        else:
-            user_alphas_data = {'users': []}
+        if errors:
+            return jsonify({
+                'error': '일부 알파 수식을 처리할 수 없습니다',
+                'details': errors
+            }), 400
         
-        # 사용자 찾기 또는 생성
-        user_entry = next((u for u in user_alphas_data['users'] if u['username'] == username), None)
-        if not user_entry:
-            user_entry = {'username': username, 'alphas': []}
-            user_alphas_data['users'].append(user_entry)
-        
-        # 알파 추가 (고유 ID 생성)
-        for alpha in alphas:
-            alpha['id'] = f"alpha_{int(time.time())}_{secrets.token_hex(4)}"
-            alpha['created_at'] = datetime.now().isoformat()
-            user_entry['alphas'].append(alpha)
-        
-        # 파일 저장
-        os.makedirs(os.path.dirname(user_alpha_file), exist_ok=True)
-        with open(user_alpha_file, 'w', encoding='utf-8') as f:
-            json.dump(user_alphas_data, f, ensure_ascii=False, indent=2)
-        
-        logger.info(f"사용자 {username}의 {len(alphas)}개 알파 저장 완료")
-        
+        stored_items = ALPHA_STORE.add_private(username, compiled_records)
+        registry = get_alpha_registry(username)
+        private_definitions = registry.list(owner=username)
+
+        logger.info("사용자 %s의 %d개 알파 저장 완료", username, len(stored_items))
+
         return jsonify({
             'success': True,
-            'message': f'{len(alphas)}개의 알파가 저장되었습니다',
-            'saved_alphas': alphas
+            'message': f'{len(stored_items)}개의 알파가 저장되었습니다',
+            'saved_alphas': [item.to_dict() for item in stored_items],
+            'private_definitions': [serialize_alpha_definition(defn) for defn in private_definitions]
         })
         
     except Exception as e:
@@ -1774,29 +1839,22 @@ def save_user_alpha():
 def get_user_alphas():
     """사용자 알파 목록 조회"""
     try:
-        if 'username' not in session:
+        username = session.get('username')
+        if not username:
             return jsonify({'error': '로그인이 필요합니다'}), 401
         
-        username = session['username']
-        user_alpha_file = os.path.join(PROJECT_ROOT, 'database', 'userdata', 'user_alphas.json')
-        
-        if not os.path.exists(user_alpha_file):
-            return jsonify({
-                'success': True,
-                'alphas': [],
-                'total_count': 0
-            })
-        
-        with open(user_alpha_file, 'r', encoding='utf-8') as f:
-            user_alphas_data = json.load(f)
-        
-        user_entry = next((u for u in user_alphas_data['users'] if u['username'] == username), None)
-        alphas = user_entry['alphas'] if user_entry else []
-        
+        stored_alphas = [alpha.to_dict() for alpha in ALPHA_STORE.list_private(username)]
+        registry = get_alpha_registry(username)
+        shared_definitions = [serialize_alpha_definition(defn) for defn in SHARED_ALPHA_REGISTRY.list(source='shared')]
+        private_definitions = [serialize_alpha_definition(defn) for defn in registry.list(owner=username)]
+
         return jsonify({
             'success': True,
-            'alphas': alphas,
-            'total_count': len(alphas)
+            'alphas': stored_alphas,
+            'total_count': len(stored_alphas),
+            'shared_definitions': shared_definitions,
+            'private_definitions': private_definitions,
+            'registry_size': len(registry)
         })
         
     except Exception as e:
@@ -1807,38 +1865,25 @@ def get_user_alphas():
 def delete_user_alpha(alpha_id):
     """사용자 알파 삭제"""
     try:
-        if 'username' not in session:
+        username = session.get('username')
+        if not username:
             return jsonify({'error': '로그인이 필요합니다'}), 401
         
-        username = session['username']
-        user_alpha_file = os.path.join(PROJECT_ROOT, 'database', 'userdata', 'user_alphas.json')
-        
-        if not os.path.exists(user_alpha_file):
-            return jsonify({'error': '알파 파일을 찾을 수 없습니다'}), 404
-        
-        with open(user_alpha_file, 'r', encoding='utf-8') as f:
-            user_alphas_data = json.load(f)
-        
-        user_entry = next((u for u in user_alphas_data['users'] if u['username'] == username), None)
-        if not user_entry:
-            return jsonify({'error': '사용자를 찾을 수 없습니다'}), 404
-        
-        # 알파 삭제
-        original_count = len(user_entry['alphas'])
-        user_entry['alphas'] = [a for a in user_entry['alphas'] if a['id'] != alpha_id]
-        
-        if len(user_entry['alphas']) == original_count:
+        if not ALPHA_STORE.delete_private(username, alpha_id):
             return jsonify({'error': '알파를 찾을 수 없습니다'}), 404
-        
-        # 파일 저장
-        with open(user_alpha_file, 'w', encoding='utf-8') as f:
-            json.dump(user_alphas_data, f, ensure_ascii=False, indent=2)
-        
-        logger.info(f"사용자 {username}의 알파 {alpha_id} 삭제 완료")
-        
+
+        stored_alphas = [alpha.to_dict() for alpha in ALPHA_STORE.list_private(username)]
+        registry = get_alpha_registry(username)
+        private_definitions = [serialize_alpha_definition(defn) for defn in registry.list(owner=username)]
+
+        logger.info("사용자 %s의 알파 %s 삭제 완료", username, alpha_id)
+
         return jsonify({
             'success': True,
-            'message': '알파가 삭제되었습니다'
+            'message': '알파가 삭제되었습니다',
+            'alphas': stored_alphas,
+            'private_definitions': private_definitions,
+            'total_count': len(stored_alphas)
         })
         
     except Exception as e:

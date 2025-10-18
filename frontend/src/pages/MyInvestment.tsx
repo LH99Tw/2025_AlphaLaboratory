@@ -17,7 +17,7 @@ import { LiquidBackground } from '../components/common/LiquidBackground';
 import { AmbientWordMatrix } from '../components/common/AmbientWordMatrix';
 import { HoloStatTicker } from '../components/common/HoloStatTicker';
 import { NeuralField } from '../components/common/NeuralField';
-import { AssetHistory, PortfolioStock } from '../types';
+import { StoredAlpha, AlphaDefinition, AddAlphaRequest, UpdateAlphaRequest } from '../types';
 
 // Chart.js 등록
 ChartJS.register(
@@ -86,6 +86,168 @@ const HeroDescription = styled.p`
   font-size: 1rem;
   line-height: 1.6;
   color: rgba(232, 234, 237, 0.75);
+`;
+
+const AlphaCard = styled(GlassCard)`
+  padding: ${theme.spacing.xl};
+  position: relative;
+  overflow: hidden;
+  min-height: 280px;
+`;
+
+const AlphaList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${theme.spacing.lg};
+`;
+
+const AlphaItem = styled.div`
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: ${theme.borderRadius.lg};
+  padding: ${theme.spacing.lg};
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+`;
+
+const AlphaInfo = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${theme.spacing.sm};
+
+  h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: ${theme.typography.fontWeight.semibold};
+    color: ${theme.colors.textPrimary};
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.85rem;
+    color: ${theme.colors.textSecondary};
+    max-width: 400px;
+  }
+`;
+
+const AlphaActions = styled.div`
+  display: flex;
+  gap: ${theme.spacing.sm};
+`;
+
+const ActionButton = styled.button<{ $variant?: 'primary' | 'secondary' | 'danger' }>`
+  padding: ${theme.spacing.sm} ${theme.spacing.md};
+  border-radius: ${theme.borderRadius.md};
+  border: 1px solid transparent;
+  font-size: 0.8rem;
+  font-weight: ${theme.typography.fontWeight.medium};
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  ${({ $variant = 'primary' }) => {
+    switch ($variant) {
+      case 'primary':
+        return `
+          background: ${theme.colors.accentPrimary};
+          color: ${theme.colors.textPrimary};
+          border-color: ${theme.colors.accentPrimary};
+
+          &:hover {
+            background: ${theme.colors.accentGold};
+            border-color: ${theme.colors.accentGold};
+          }
+        `;
+      case 'secondary':
+        return `
+          background: rgba(255, 255, 255, 0.1);
+          color: ${theme.colors.textPrimary};
+          border-color: rgba(255, 255, 255, 0.2);
+
+          &:hover {
+            background: rgba(255, 255, 255, 0.2);
+          }
+        `;
+      case 'danger':
+        return `
+          background: ${theme.colors.error};
+          color: white;
+          border-color: ${theme.colors.error};
+
+          &:hover {
+            background: ${theme.colors.error}dd;
+          }
+        `;
+    }
+  }}
+`;
+
+const AddAlphaModal = styled.div`
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+`;
+
+const ModalContent = styled(GlassCard)`
+  padding: ${theme.spacing.xxl};
+  width: 90%;
+  max-width: 600px;
+  max-height: 80vh;
+  overflow-y: auto;
+`;
+
+const ModalTitle = styled.h2`
+  margin: 0 0 ${theme.spacing.lg} 0;
+  font-size: ${theme.typography.fontSize.h3};
+  font-weight: ${theme.typography.fontWeight.semibold};
+  color: ${theme.colors.textPrimary};
+`;
+
+const FormGroup = styled.div`
+  margin-bottom: ${theme.spacing.lg};
+
+  label {
+    display: block;
+    margin-bottom: ${theme.spacing.sm};
+    font-size: 0.9rem;
+    font-weight: ${theme.typography.fontWeight.medium};
+    color: ${theme.colors.textPrimary};
+  }
+
+  input, textarea {
+    width: 100%;
+    padding: ${theme.spacing.md};
+    border-radius: ${theme.borderRadius.md};
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.05);
+    color: ${theme.colors.textPrimary};
+    font-size: 0.9rem;
+
+    &:focus {
+      outline: none;
+      border-color: ${theme.colors.accentPrimary};
+    }
+  }
+
+  textarea {
+    min-height: 120px;
+    resize: vertical;
+  }
+`;
+
+const ModalActions = styled.div`
+  display: flex;
+  gap: ${theme.spacing.md};
+  justify-content: flex-end;
+  margin-top: ${theme.spacing.xl};
 `;
 
 const TickerWrapper = styled.div`
@@ -274,12 +436,11 @@ const AMBIENT_COLUMNS = [
   },
 ];
 
-interface UserData {
-  totalAssets: number;
-  cash: number;
-  investments: number;
-  name: string;
-  email: string;
+interface AlphaStats {
+  totalAlphas: number;
+  sharedAlphas: number;
+  privateAlphas: number;
+  recentAlphas: number;
 }
 
 const formatCurrency = (amount: number) =>
