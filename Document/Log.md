@@ -1082,3 +1082,9 @@ allowed_fields = ['name', 'email', 'profile_emoji']
     - 평가 지표 가중치를 설정 파일 없이 조정할 수 있도록 `DEFAULT_METRIC_WEIGHTS`와 사용자 입력 병합 로직을 추가했습니다.
     - 토너먼트 선택, 신규성 아카이브, 세대 기반 연령층 재시작으로 탐색 다양성과 수렴 속도를 강화했습니다.
     - 초기화·진화 로그에 기간별 IC와 회전율 요약을 출력해 `/api/ga/run` 백엔드 로그가 즉시 해석 가능하도록 개선했습니다.
+
+[23](20250117):알파 레지스트리/스토어 리팩토링 및 도큐먼트 반영
+    - `alphas/` 패키지를 신설해 `AlphaDataset`, `AlphaRegistry`, `AlphaStore`, `compile_expression` 등 공용 모듈을 구축하고 WorldQuant 101 알파를 자동 등록했습니다.
+    - 개인 알파 저장소를 `database/alpha_store/` 구조(공용 shared.json + private/<username>.json)로 이전하고, 레거시 `user_alphas.json`을 자동 마이그레이션하도록 했습니다.
+    - `backend/app.py`와 `backend_module/4_ComputeAlphas.py`를 새로운 레지스트리 기반으로 통합해 공유/개인 알파를 일관된 파이프라인에서 계산·노출합니다.
+    - ImplementationSummary, SystemReview, DataStructure 문서를 최신 아키텍처와 응답 스펙에 맞게 업데이트했습니다.
