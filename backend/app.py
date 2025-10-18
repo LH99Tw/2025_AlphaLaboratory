@@ -915,30 +915,72 @@ def run_ga():
         
         def run_ga_async():
             try:
+                # 로그 스트림 초기화
+                log_stream = []
+                def log_to_status(message):
+                    log_stream.append(f"{datetime.now().strftime('%H:%M:%S')}: {message}")
+                    # 최근 50개 로그만 유지
+                    if len(log_stream) > 50:
+                        log_stream.pop(0)
+                    ga_status[task_id]['logs'] = log_stream.copy()
+
                 logger.info(f"GA 시작: {task_id}")
+                log_to_status(f"GA 실행 시작: {task_id}")
                 ga_status[task_id]['progress'] = 10
-                
+
                 logger.info(f"GA 설정: 세대 {generations}, 개체수 {population_size}, 최대 깊이 {max_depth}")
-                ga_status[task_id]['progress'] = 30
+                log_to_status(f"GA 설정: 세대 {generations}, 개체수 {population_size}, 최대 깊이 {max_depth}")
+                ga_status[task_id]['progress'] = 20
+
+                # GA 엔진 초기화 상태 업데이트
+                ga_status[task_id]['current_generation'] = 0
+                ga_status[task_id]['total_generations'] = generations
+                ga_status[task_id]['best_fitness'] = 0.0
+
+                # GA 데이터 준비
+                ga_data = None
+                if ga_system and hasattr(ga_system, 'data'):
+                    ga_data = ga_system.data
+                elif hasattr(ga_system, '_data'):
+                    ga_data = ga_system._data
+                else:
+                    # GA 시스템에서 데이터를 가져올 수 없으면 실제 데이터 로드 시도
+                    ga_data = load_real_data_for_ga()
+                    if not ga_data:
+                        # 최소 더미 데이터 생성
+                        ga_data = create_minimal_dummy_data()
                 
                 # GA 실행 (안전한 실행 방식)
                 try:
                     if hasattr(ga_system, 'run'):
+                        log_to_status("실제 GA 엔진 실행 시작")
+                        log_to_status(f"GA 파라미터: max_depth={max_depth}, population={population_size}, generations={generations}")
+
                         # 실제 GA 실행 시도 - 올바른 파라미터 이름 사용
-                        best_alphas = ga_system.run(
-                            max_depth=max_depth,
-                            population=population_size,
-                            generations=generations,
-                            warmstart_k=4,
-                            n_keep_per_depth=10,
-                            p_mutation=0.3,
-                            p_crossover=0.7
-                        )
+                        try:
+                            best_alphas = ga_system.run(
+                                max_depth=max_depth,
+                                population=population_size,
+                                generations=generations,
+                                warmstart_k=4,
+                                n_keep_per_depth=10,
+                                p_mutation=0.3,
+                                p_crossover=0.7
+                            )
+                            log_to_status(f"GA 실행 완료, 원시 결과 타입: {type(best_alphas)}, 길이: {len(best_alphas) if best_alphas else 0}")
+                        except Exception as ga_error:
+                            log_to_status(f"GA 실행 중 예외 발생: {str(ga_error)}")
+                            raise ga_error
+
+                        log_to_status(f"GA 실행 완료, 결과: {len(best_alphas) if best_alphas else 0}개 알파 발견")
+                        # GA 실행 중간 업데이트 (예시로 중간에 상태 업데이트)
+                        ga_status[task_id]['progress'] = 60
+                        ga_status[task_id]['current_generation'] = generations // 2  # 중간 지점으로 설정
                         
                         # GA 결과 처리 - 빈 결과도 수용하되 의미있는 알파 생성
                         logger.info(f"GA 실행 완료. 원시 결과: {len(best_alphas) if best_alphas else 0}개")
                         
-                        # 실제 GA 결과가 있는 경우
+                        # 실제 GA 결과가 있는 경우 (또는 빈 리스트인 경우 더미 데이터로 폴백)
                         if best_alphas and len(best_alphas) > 0:
                             formatted_alphas = []
                             for ind in best_alphas[:max_depth * 2]:  # 깊이 x2 만큼 가져오기
@@ -953,40 +995,65 @@ def run_ga():
                                     except Exception as e:
                                         logger.warning(f"개체 변환 실패: {e}")
                                         continue
-                            
+
                             if formatted_alphas:
                                 best_alphas = formatted_alphas
                                 logger.info(f"실제 GA 결과 사용: {len(best_alphas)}개")
                             else:
                                 raise ValueError("GA 결과 변환 실패")
                         else:
-                            # GA가 엘리트를 찾지 못한 경우 - run_ga.py 방식으로 재시도
-                            logger.warning("GA에서 엘리트를 찾지 못함. 대안 알파 생성 중...")
-                            raise ValueError("GA 엘리트 없음 - 대안 생성 필요")
+                            # GA가 엘리트를 찾지 못한 경우 - 명확한 오류 메시지 출력
+                            log_to_status(f"❌ 실제 GA에서 결과 없음 (길이: {len(best_alphas) if best_alphas else 0})")
+                            log_to_status("❌ 유전 알고리즘에서 엘리트를 찾을 수 없습니다. 데이터나 알고리즘 설정을 확인해주세요.")
+                            logger.warning("GA에서 엘리트를 찾지 못함. 사용자에게 오류 메시지 반환.")
+
+                            # 상태를 실패로 업데이트하고 사용자에게 명확한 피드백 제공
+                            ga_status[task_id].update({
+                                'status': 'failed',
+                                'error': '유전 알고리즘에서 엘리트를 찾을 수 없습니다. 데이터나 알고리즘 설정을 확인해주세요.',
+                                'error_details': f'실제 GA 실행 결과: {len(best_alphas) if best_alphas else 0}개 엘리트 발견'
+                            })
+
+                            # 실제 결과가 없으므로 빈 리스트 반환
+                            best_alphas = []
                     else:
                         raise AttributeError("GA 시스템에 run 메서드가 없습니다")
                         
                 except Exception as ga_error:
-                    logger.warning(f"실제 GA 실행 실패: {str(ga_error)}, run_ga.py 방식으로 재시도")
-                    # run_ga.py 방식으로 대안 실행
-                    try:
-                        best_alphas = run_ga_alternative(df_data, max_depth, population_size, generations)
-                        logger.info(f"run_ga.py 방식 성공: {len(best_alphas)}개 알파 생성")
-                    except Exception as alt_error:
-                        logger.error(f"대안 GA도 실패: {str(alt_error)}, 더미 데이터 사용")
-                        # 최후 더미 결과
-                        best_alphas = generate_meaningful_dummy_alphas(max_depth * 2)
+                    log_to_status(f"❌ 실제 GA 실행 중 예외 발생: {str(ga_error)}")
+                    logger.error(f"실제 GA 실행 실패: {str(ga_error)}")
+
+                    # 상태를 실패로 업데이트하고 사용자에게 명확한 피드백 제공
+                    ga_status[task_id].update({
+                        'status': 'failed',
+                        'error': f'유전 알고리즘 실행 중 예외가 발생했습니다: {str(ga_error)}',
+                        'error_details': '알고리즘 실행 중 예상치 못한 오류가 발생했습니다.'
+                    })
+
+                    # GA 실행에서 예외 발생 시 빈 리스트 반환
+                    best_alphas = []
+                    log_to_status("❌ 유전 알고리즘 실행 중 오류가 발생했습니다.")
                 
                 ga_status[task_id]['progress'] = 80
                 
-                # 결과 정리
+                # 결과 정리 및 상태 업데이트
                 if isinstance(best_alphas, list):
-                    results = best_alphas
+                    if len(best_alphas) > 0:
+                        results = best_alphas
+                        status = 'completed'
+                        log_to_status(f"✅ 총 {len(results)}개 알파 생성 완료")
+                    else:
+                        results = []
+                        status = 'failed'
+                        log_to_status("❌ 생성된 알파가 없습니다. 데이터나 알고리즘 설정을 확인해주세요.")
                 else:
                     results = [{"expression": str(best_alphas), "fitness": 0.8}]
-                
-                ga_status[task_id] = {
-                    'status': 'completed',
+                    status = 'completed'
+                    log_to_status(f"⚠️ 예상치 못한 결과 형식: {type(best_alphas)}")
+
+                # 최종 결과 저장 전 상태 업데이트
+                ga_status[task_id].update({
+                    'status': status,
                     'progress': 100,
                     'results': results,
                     'parameters': {
@@ -994,11 +1061,18 @@ def run_ga():
                         'generations': generations,
                         'max_depth': max_depth
                     },
-                    'end_time': datetime.now().isoformat()
-                }
-                
-                logger.info(f"GA 완료: {task_id}")
-                
+                    'end_time': datetime.now().isoformat(),
+                    'final_generation': generations,
+                    'total_alphas_generated': len(results)
+                })
+
+                if status == 'completed':
+                    log_to_status(f"GA 실행 완료! 총 {len(results)}개 알파 생성")
+                else:
+                    log_to_status(f"GA 실행 실패! 총 {len(results)}개 알파 생성")
+
+                logger.info(f"GA 완료: {task_id} (상태: {status})")
+
             except Exception as e:
                 logger.error(f"GA 실행 오류: {str(e)}")
                 ga_status[task_id] = {

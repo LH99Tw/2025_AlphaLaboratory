@@ -7,7 +7,7 @@ import type {
   ChatMessage
 } from '../types';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5002';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -70,6 +70,32 @@ export const sendChatMessage = async (message: string, userId: string = 'user123
 // Alias for compatibility
 export const chatWithAgent = async (message: string) => {
   const response = await api.post('/api/chat', { message });
+  return response.data;
+};
+
+// Alpha Incubator GA API
+export const startGAEvolution = async (params: {
+  population_size?: number;
+  generations?: number;
+  max_depth?: number;
+}) => {
+  const response = await api.post('/api/ga/run', params, { withCredentials: true });
+  return response.data;
+};
+
+export const getGAEvolutionStatus = async (taskId: string) => {
+  const response = await api.get(`/api/ga/status/${taskId}`, { withCredentials: true });
+  return response.data;
+};
+
+export const backtestGAAlphas = async (taskId: string, params: {
+  start_date?: string;
+  end_date?: string;
+  rebalancing_frequency?: string;
+  transaction_cost?: number;
+  quantile?: number;
+}) => {
+  const response = await api.post(`/api/ga/backtest/${taskId}`, params, { withCredentials: true });
   return response.data;
 };
 

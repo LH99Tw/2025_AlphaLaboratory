@@ -11,7 +11,8 @@ AutoAlpha-style Evolutionary Search (GA) for Formulaic Alphas
 
 본 구현은 다음을 목표로 합니다.
 - Alphas.py의 연산자/입력(OHLCV, VWAP, returns 등)을 재사용하여 "수식 트리" 형태의 알파를 진화시킵니다.
-- 1차 평가는 빠른 IC(Information Coefficient) 기반이며, 상위 후보만 별도 백테스트 시스템(예: 5_results.LongOnlyBacktestSystem)에 넘길 수 있도록 훅을 제공합니다.
+- AutoAlpha/AlphaMix 논문을 참고해 다중 기간 IC, 정보비율(IC_IR), 회전율, PCA 다양성을 결합한 합리적 스코어를 사용합니다.
+- PCA-QD + Age-Layered 재시작 전략으로 탐색 다양성을 유지하고, 상위 후보만 별도 백테스트 시스템(예: 5_results.LongOnlyBacktestSystem)에 넘길 수 있도록 훅을 제공합니다.
 - 최종 선별된 알파를 NewAlphas.py에 함수(alphaGA001, ...) 형태로 자동 기록합니다.
 
 요구되는 데이터 형식 (중요):
@@ -117,6 +118,24 @@ BINARY_OPS = {
 }
 
 TERMINALS = ["open", "high", "low", "close", "volume", "vwap", "returns"]
+
+# 진화 품질 평가 시 기본 가중치 설정 (문헌 기반)
+DEFAULT_METRIC_WEIGHTS: Dict[str, Any] = {
+    # 다중 투자 기간 IC 중요도를 단계적으로 부여 (AutoAlpha + GEP 논문 조합)
+    "horizons": {
+        1: 0.4,
+        5: 0.35,
+        10: 0.25,
+    },
+    # 안정성과 다양성 반영 가중치 (PCA-QD, Risk-aware GA 참고)
+    "ic_ir": 0.25,
+    "novelty": 0.15,
+    "turnover": 0.1,
+    "ic_vol": 0.1,
+    "penalty": 0.1,
+    # 충분한 시계열 커버리지 확보를 위한 목표치
+    "coverage_target": 0.6,
+}
 
 
 @dataclass
@@ -255,6 +274,32 @@ class Node:
             yield from self.right.iter_nodes()
 
 
+@dataclass
+class FitnessMetrics:
+    """
+    다중 지표 기반 적합도 결과.
+    - ic_by_horizon: 기간별 평균 IC
+    - ic_counts: 기간별 유효 일자 수
+    - ic_volatility: 기간 혼합 IC의 변동성
+    - ic_ir: 정보비율
+    - turnover: 순위 변동률 기반 회전율
+    - coverage: 유효 일자 비율
+    - novelty: PCA 기반 다양성 점수
+    - penalty: 커버리지/안정성 페널티 합산
+    - composite: 최종 스칼라 점수
+    """
+    ic_by_horizon: Dict[int, float] = field(default_factory=dict)
+    ic_counts: Dict[int, int] = field(default_factory=dict)
+    ic_aggregate: float = float("nan")
+    ic_volatility: float = float("nan")
+    ic_ir: float = float("nan")
+    turnover: float = float("nan")
+    coverage: float = float("nan")
+    novelty: float = float("nan")
+    penalty: float = 0.0
+    composite: float = float("nan")
+
+
 class DefaultSearchSpace:
     """
     탐색 공간 정의 클래스
@@ -293,49 +338,80 @@ def cross_sectional_ic(factor: pd.DataFrame, future_ret: pd.DataFrame, show_prog
     - 데이터 정합성(공통 인덱스) 및 유효 표본 수(>=5)를 확인합니다.
     """
     try:
-        common = factor.index.intersection(future_ret.index)
-        if len(common) == 0:
+        ic_series = cross_sectional_ic_series(factor, future_ret)
+        if ic_series.empty:
             return float("nan")
-            
-        factor = factor.loc[common]
-        future_ret = future_ret.loc[common]
-        ics = []
-        
-        total_days = len(factor)
-        # 일자별 진행상황 출력 완전히 제거 - 개체별 진행상황만 유지
-        
-        for i, (dt, row) in enumerate(factor.iterrows(), 1):
-            x = row.values
-            y = future_ret.loc[dt].values
-            
-            # 유효한 값만 선택
-            mask = np.isfinite(x) & np.isfinite(y)
-            if mask.sum() < 5:  # 최소 5개 데이터 필요
-                continue
-                
-            x_valid = x[mask]
-            y_valid = y[mask]
-            
-            # 변동성 확인 (상수 값 제외)
-            if np.std(x_valid) < 1e-8 or np.std(y_valid) < 1e-8:
-                continue
-                
-            # 상관계수 계산
-            try:
-                corr_matrix = np.corrcoef(x_valid, y_valid)
-                if corr_matrix.shape == (2, 2):  # 정상적인 2x2 행렬
-                    ic_val = corr_matrix[0, 1]
-                    if np.isfinite(ic_val):
-                        ics.append(ic_val)
-            except:
-                continue
-                
-        if len(ics) == 0:
-            return float("nan")
-        return float(np.mean(ics))
-        
-    except Exception as e:
+        return float(ic_series.mean())
+    except Exception:
         return float("nan")
+
+
+def cross_sectional_ic_series(factor: pd.DataFrame, future_ret: pd.DataFrame) -> pd.Series:
+    """
+    일자별 단면 IC 시계열을 계산합니다.
+    - factor, future_ret: 동일한 인덱스(Date)와 컬럼(Ticker)을 가정
+    """
+    common = factor.index.intersection(future_ret.index)
+    if len(common) == 0:
+        return pd.Series(dtype=float)
+
+    factor = factor.loc[common]
+    future_ret = future_ret.loc[common]
+    ic_values: List[float] = []
+    ic_dates: List[pd.Timestamp] = []
+
+    for dt, row in factor.iterrows():
+        y = future_ret.loc[dt]
+        x = row.values
+        y_arr = y.values if hasattr(y, "values") else np.asarray(y)
+
+        mask = np.isfinite(x) & np.isfinite(y_arr)
+        if mask.sum() < 5:
+            continue
+
+        x_valid = x[mask]
+        y_valid = y_arr[mask]
+
+        if np.std(x_valid) < 1e-8 or np.std(y_valid) < 1e-8:
+            continue
+
+        try:
+            corr_matrix = np.corrcoef(x_valid, y_valid)
+            if corr_matrix.shape == (2, 2):
+                ic_val = corr_matrix[0, 1]
+                if np.isfinite(ic_val):
+                    ic_values.append(float(ic_val))
+                    ic_dates.append(dt)
+        except Exception:
+            continue
+
+    if not ic_values:
+        return pd.Series(dtype=float)
+    return pd.Series(ic_values, index=pd.Index(ic_dates, name="date"))
+
+
+def compute_factor_turnover(factor_df: pd.DataFrame) -> float:
+    """
+    팩터 순위 기반 회전율을 계산합니다.
+    - 연속 일자의 순위 변화량 평균을 통해 안정성을 측정합니다.
+    """
+    if factor_df.empty:
+        return 0.0
+
+    try:
+        ranks = factor_df.rank(axis=1, method="average", pct=True)
+        diffs = ranks.diff().abs()
+        if diffs.shape[0] <= 1:
+            return 0.0
+
+        denom = ranks.notna().sum(axis=1).replace(0, np.nan)
+        turnover_series = diffs.sum(axis=1) / denom
+        turnover_series = turnover_series.replace([np.inf, -np.inf], np.nan).dropna()
+        if turnover_series.empty:
+            return 0.0
+        return float(turnover_series.mean())
+    except Exception:
+        return 0.0
 
 def first_pc_vector(A: pd.DataFrame) -> np.ndarray:
     """
@@ -463,6 +539,9 @@ class Individual:
     fitness: float = float("nan")
     pca_vec: Optional[np.ndarray] = None
     factor_matrix: Optional[pd.DataFrame] = None
+    metrics: Optional[FitnessMetrics] = None
+    age: int = 0
+    last_improved_gen: Optional[int] = None
 
 class AutoAlphaGA:
     """
@@ -471,17 +550,250 @@ class AutoAlphaGA:
     - hold_horizon: 미래 수익률 계산 시점(h)
     - random_seed: 재현성
     """
-    def __init__(self, df_data: Dict[str, pd.DataFrame], hold_horizon:int=1, random_seed:int=42):
+    def __init__(self,
+                 df_data: Dict[str, pd.DataFrame],
+                 hold_horizon:int=1,
+                 random_seed:int=42,
+                 metric_weights: Optional[Dict[str, Any]] = None,
+                 age_layer_span:int = 6,
+                 stale_age:int = 12):
         self.df_data = df_data
         self.h = int(hold_horizon)
         self.rng = random.Random(random_seed)
 
         self.ctx = Alphas(df_data)
         self.close_df = self.ctx.close
-        self.future_ret = compute_future_returns(self.close_df, self.h)
+        self.metric_weights = self._prepare_metric_weights(metric_weights)
+
+        self.eval_horizons = sorted(set([self.h] + list(self.metric_weights["horizons"].keys())))
+        self.future_returns_cache: Dict[int, pd.DataFrame] = {
+            h: compute_future_returns(self.close_df, h) for h in self.eval_horizons
+        }
+        self.future_ret = self.future_returns_cache[self.h]
+        self.coverage_target = float(self.metric_weights.get("coverage_target", 0.6))
+        self.age_layer_span = max(3, int(age_layer_span))
+        self.stale_age = max(self.age_layer_span, int(stale_age))
 
         self.archive: List[Individual] = []
         self.record: List[Individual] = []
+        self._generation_counter = 0
+
+    def _prepare_metric_weights(self, metric_weights: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        사용자 설정을 기본 가중치와 병합하고, 기간 가중치를 정규화합니다.
+        """
+        merged: Dict[str, Any] = {
+            "horizons": dict(DEFAULT_METRIC_WEIGHTS["horizons"]),
+            "ic_ir": DEFAULT_METRIC_WEIGHTS["ic_ir"],
+            "novelty": DEFAULT_METRIC_WEIGHTS["novelty"],
+            "turnover": DEFAULT_METRIC_WEIGHTS["turnover"],
+            "ic_vol": DEFAULT_METRIC_WEIGHTS["ic_vol"],
+            "penalty": DEFAULT_METRIC_WEIGHTS["penalty"],
+            "coverage_target": DEFAULT_METRIC_WEIGHTS["coverage_target"],
+        }
+
+        if metric_weights:
+            for key, value in metric_weights.items():
+                if key == "horizons" and isinstance(value, dict):
+                    for hz, wt in value.items():
+                        try:
+                            hz_int = int(hz)
+                            merged["horizons"][hz_int] = float(wt)
+                        except (TypeError, ValueError):
+                            continue
+                else:
+                    merged[key] = value
+
+        # 음수 또는 0 합계 방지를 위해 가중치 정규화
+        horizon_total = sum(abs(w) for w in merged["horizons"].values())
+        if horizon_total <= 0:
+            merged["horizons"] = dict(DEFAULT_METRIC_WEIGHTS["horizons"])
+            horizon_total = sum(abs(w) for w in merged["horizons"].values())
+        merged["horizons"] = {
+            int(h): float(w) / horizon_total for h, w in merged["horizons"].items()
+        }
+        return merged
+
+    def _compose_score(self, metrics: FitnessMetrics) -> float:
+        """
+        개별 지표를 단일 스칼라 점수로 합성합니다.
+        """
+        horizon_score = 0.0
+        for horizon, weight in self.metric_weights["horizons"].items():
+            horizon_score += weight * metrics.ic_by_horizon.get(horizon, 0.0)
+        metrics.ic_aggregate = horizon_score
+
+        ic_ir_term = self.metric_weights.get("ic_ir", 0.0) * (metrics.ic_ir if np.isfinite(metrics.ic_ir) else 0.0)
+        novelty_term = self.metric_weights.get("novelty", 0.0) * (metrics.novelty if np.isfinite(metrics.novelty) else 0.0)
+        turnover_term = self.metric_weights.get("turnover", 0.0) * (metrics.turnover if np.isfinite(metrics.turnover) else 0.0)
+        ic_vol_term = self.metric_weights.get("ic_vol", 0.0) * (metrics.ic_volatility if np.isfinite(metrics.ic_volatility) else 0.0)
+        penalty_term = self.metric_weights.get("penalty", 0.0) * metrics.penalty
+
+        return horizon_score + ic_ir_term + novelty_term - turnover_term - ic_vol_term - penalty_term
+
+    def novelty_score(self, ind: Individual) -> float:
+        """
+        PCA 기반 다양성 점수 계산 (AutoAlpha + MAP-Elites 아이디어).
+        - archive 내 최고 유사도를 활용하여 0~1 범위의 신규성 추정
+        """
+        if ind.factor_matrix is None or ind.factor_matrix.empty:
+            return 0.0
+
+        if ind.pca_vec is None:
+            try:
+                ind.pca_vec = first_pc_vector(ind.factor_matrix)
+            except Exception:
+                return 0.0
+
+        if not self.archive:
+            return 1.0
+
+        similarities: List[float] = []
+        for elite in self.archive:
+            if elite is ind:
+                continue
+            if elite.factor_matrix is None:
+                continue
+            if elite.pca_vec is None and elite.factor_matrix is not None:
+                try:
+                    elite.pca_vec = first_pc_vector(elite.factor_matrix)
+                except Exception:
+                    continue
+            if elite.pca_vec is None:
+                continue
+            try:
+                sim = float(np.clip(np.dot(ind.pca_vec, elite.pca_vec), -1.0, 1.0))
+                similarities.append(sim)
+            except Exception:
+                continue
+
+        if not similarities:
+            return 1.0
+        best_sim = max(similarities)
+        best_sim = max(-1.0, min(1.0, best_sim))
+        if best_sim <= 0:
+            return 1.0
+        return max(0.0, 1.0 - best_sim)
+
+    def _evaluate_factor_metrics(self, factor_df: pd.DataFrame, ind: Optional[Individual]) -> FitnessMetrics:
+        """
+        멀티 지표 기반 적합도 계산 (다중 기간 IC + 안정성 + 다양성).
+        """
+        ic_by_horizon: Dict[int, float] = {}
+        ic_counts: Dict[int, int] = {}
+        ic_series_collection: List[pd.Series] = []
+
+        for horizon, _ in self.metric_weights["horizons"].items():
+            future_ret = self.future_returns_cache.get(horizon)
+            if future_ret is None:
+                continue
+            ic_series = cross_sectional_ic_series(factor_df, future_ret)
+            ic_by_horizon[horizon] = float(ic_series.mean()) if not ic_series.empty else 0.0
+            ic_counts[horizon] = int(ic_series.count())
+            if not ic_series.empty:
+                ic_series_collection.append(ic_series.rename(f"h{horizon}"))
+
+        if ic_series_collection:
+            combined_df = pd.concat(ic_series_collection, axis=1)
+            combined_series = combined_df.mean(axis=1)
+        else:
+            combined_series = pd.Series(dtype=float)
+
+        ic_volatility = float(combined_series.std(ddof=0)) if not combined_series.empty else 0.0
+        ic_volatility = abs(ic_volatility)
+
+        agg_ic = 0.0
+        for horizon, weight in self.metric_weights["horizons"].items():
+            agg_ic += weight * ic_by_horizon.get(horizon, 0.0)
+
+        ic_ir = agg_ic / (ic_volatility + 1e-6)
+        if not np.isfinite(ic_ir):
+            ic_ir = 0.0
+
+        turnover = compute_factor_turnover(factor_df)
+        coverage = 0.0
+        if len(factor_df) > 0:
+            valid_points = int(combined_series.dropna().shape[0]) if not combined_series.empty else 0
+            coverage = valid_points / float(len(factor_df))
+
+        coverage_penalty = max(0.0, self.coverage_target - coverage)
+        if not np.isfinite(coverage_penalty):
+            coverage_penalty = 0.0
+
+        metrics = FitnessMetrics(
+            ic_by_horizon=ic_by_horizon,
+            ic_counts=ic_counts,
+            ic_aggregate=agg_ic,
+            ic_volatility=ic_volatility,
+            ic_ir=ic_ir,
+            turnover=turnover if np.isfinite(turnover) else 0.0,
+            coverage=coverage,
+            penalty=coverage_penalty,
+        )
+
+        metrics.novelty = self.novelty_score(ind) if ind is not None else 0.0
+        metrics.composite = self._compose_score(metrics)
+        return metrics
+
+    def _update_archive(self, ind: Individual, diversity_threshold: float) -> None:
+        """
+        다양성이 충분한 개체를 아카이브에 추가합니다.
+        """
+        if ind.factor_matrix is None or ind.factor_matrix.empty:
+            return
+
+        novelty = ind.metrics.novelty if ind.metrics else self.novelty_score(ind)
+        if ind.metrics:
+            ind.metrics.novelty = novelty
+            ind.metrics.composite = self._compose_score(ind.metrics)
+            ind.fitness = ind.metrics.composite
+
+        diversity_gate = max(0.0, 1.0 - diversity_threshold)
+        if novelty < diversity_gate:
+            return
+
+        if ind not in self.archive:
+            self.archive.append(ind)
+        if ind.pca_vec is None:
+            try:
+                ind.pca_vec = first_pc_vector(ind.factor_matrix)
+            except Exception:
+                ind.pca_vec = None
+
+    def _tournament_select(self, population: List[Individual], k:int = 3) -> Individual:
+        """
+        토너먼트 선택으로 부모 선택 (IC 기반 적합도 우선).
+        """
+        if not population:
+            raise ValueError("Population is empty")
+        size = min(max(1, k), len(population))
+        contenders = self.rng.sample(population, size)
+        best = max(contenders, key=lambda ind: ind.fitness if np.isfinite(ind.fitness) else -np.inf)
+        return best
+
+    def _refresh_stale_population(self,
+                                  population: List[Individual],
+                                  depth:int,
+                                  diversity_threshold:float) -> None:
+        """
+        일정 세대 동안 개선이 없는 개체(고령층)를 재시작하여 탐색 다양성 보강.
+        """
+        if not population:
+            return
+
+        worst_count = max(1, int(len(population) * 0.25))
+        start_idx = len(population) - worst_count
+        for idx in range(start_idx, len(population)):
+            ind = population[idx]
+            if ind.age < self.stale_age:
+                continue
+            new_tree = random_tree(self.rng, depth)
+            new_ind = Individual(tree=new_tree)
+            self.evaluate(new_ind)
+            new_ind.age = 0
+            new_ind.last_improved_gen = self._generation_counter
+            population[idx] = new_ind
+            self._update_archive(new_ind, diversity_threshold)
 
     def evaluate(self, ind: Individual) -> float:
         """
@@ -503,58 +815,51 @@ class AutoAlphaGA:
         try:
             f = ind.tree.compile()
             val = f(self.ctx)
-            
+
             # 결과 형태 정규화
             if isinstance(val, pd.Series):
                 try:
-                    # MultiIndex Series를 DataFrame으로 변환
                     if isinstance(val.index, pd.MultiIndex):
                         factor_df = val.unstack()
                     else:
-                        # 단일 인덱스 Series를 self.close_df와 같은 shape으로 브로드캐스트
                         if len(val) == len(self.close_df):
-                            # 시간 차원이 맞으면 모든 종목에 동일 값 적용
                             factor_df = pd.DataFrame(
                                 np.tile(val.values.reshape(-1, 1), (1, self.close_df.shape[1])),
                                 index=self.close_df.index,
                                 columns=self.close_df.columns
                             )
                         else:
-                            # 크기가 안 맞으면 0 행렬
                             factor_df = self.close_df * 0.0
                 except Exception:
                     factor_df = self.close_df * 0.0
             elif isinstance(val, pd.DataFrame):
                 factor_df = val
             else:
-                # 스칼라나 배열인 경우
                 factor_df = self.close_df * 0.0
 
-            # 데이터 정리
             factor_df = factor_df.replace([np.inf, -np.inf], 0).fillna(0)
-            
-            # 크기 맞추기
+
             if factor_df.shape != self.close_df.shape:
-                # 인덱스/컬럼 맞추기
-                factor_df = factor_df.reindex(index=self.close_df.index, 
-                                            columns=self.close_df.columns, 
-                                            fill_value=0)
+                factor_df = factor_df.reindex(
+                    index=self.close_df.index,
+                    columns=self.close_df.columns,
+                    fill_value=0
+                )
 
-            # IC 계산 (첫 번째와 매 50번째 개체마다 진행상황 표시)
-            show_progress = (self._eval_counter == 1 or self._eval_counter % 50 == 0)
-            ic = cross_sectional_ic(factor_df, self.future_ret, show_progress=show_progress)
-            ind.fitness = float(ic) if np.isfinite(ic) else 0.0
             ind.factor_matrix = factor_df
-
+            metrics = self._evaluate_factor_metrics(factor_df, ind)
+            ind.metrics = metrics
+            ind.fitness = float(metrics.composite) if np.isfinite(metrics.composite) else 0.0
             return ind.fitness
-            
+
         except Exception as e:
-            # 디버깅을 위해 가끔 에러 내용 출력
-            if self._eval_counter % 100 == 1:  # 100번마다 한 번만
+            if self._eval_counter % 100 == 1:
                 print(f"               ⚠️ 평가 에러 (#{self._eval_counter}): {str(e)[:50]}...")
-            # 계산 실패 시 0점
             ind.fitness = 0.0
             ind.factor_matrix = self.close_df * 0.0
+            ind.metrics = FitnessMetrics()
+            ind.metrics.composite = 0.0
+            ind.metrics.ic_aggregate = 0.0
             return 0.0
 
     def pca_sim_to_archive(self, ind: Individual, threshold: float = 0.9) -> float:
@@ -574,7 +879,11 @@ class AutoAlphaGA:
                 sims.append(float(np.corrcoef(ind.pca_vec, e.pca_vec)[0,1]))
         return max(sims) if sims else 0.0
 
-    def init_population(self, size:int, depth:int, warmstart_k:int=4) -> List[Individual]:
+    def init_population(self,
+                        size:int,
+                        depth:int,
+                        warmstart_k:int=4,
+                        diversity_threshold:float=0.9) -> List[Individual]:
         """
         초기 개체군 생성(워밍스타트): 루트 템플릿 기반 후보 K배 생성 후 상위 1/K 선택
         """
@@ -595,21 +904,40 @@ class AutoAlphaGA:
         print(f"            🧮 개체 평가 중: {len(cand)}개 후보...")
         import time
         start_time = time.time()
-        
+        diversity_gate = max(0.0, 1.0 - diversity_threshold)
+
         for i, ind in enumerate(cand, 1):
             ind_start = time.time()
             self.evaluate(ind)
+            ind.age = 0
+            ind.last_improved_gen = 0
+            if ind.metrics is None:
+                ind.metrics = FitnessMetrics()
+                ind.metrics.composite = ind.fitness
+            novelty = ind.metrics.novelty if ind.metrics and np.isfinite(ind.metrics.novelty) else self.novelty_score(ind)
+            if ind.metrics:
+                ind.metrics.novelty = novelty
+                ind.metrics.composite = self._compose_score(ind.metrics)
+                ind.fitness = ind.metrics.composite
             ind_time = time.time() - ind_start
-            
+
             if i % 10 == 0 or i == len(cand):
                 elapsed = time.time() - start_time
                 avg_time = elapsed / i
                 remaining = (len(cand) - i) * avg_time
                 print(f"               [{i:3d}/{len(cand)}] 평가 완료 (개체당 {ind_time:.2f}초, 예상 잔여 {remaining:.1f}초)...")
-        
+            if novelty >= diversity_gate:
+                self.archive.append(ind)
+                if ind.pca_vec is None and ind.factor_matrix is not None:
+                    try:
+                        ind.pca_vec = first_pc_vector(ind.factor_matrix)
+                    except Exception:
+                        ind.pca_vec = None
+
         print(f"            📊 평가 완료, 상위 선별 중...")
         cand.sort(key=lambda x: (-(x.fitness if np.isfinite(x.fitness) else -np.inf)))
-        return cand[:max(1, len(cand)//warmstart_k)]
+        selected = cand[:max(1, len(cand)//warmstart_k)]
+        return selected
 
     def evolve_one_depth(self,
                          depth:int,
@@ -625,76 +953,103 @@ class AutoAlphaGA:
         - 부모-자식 치환, 다양성(1주성분 유사도) 필터, 엘리트 보관
         """
         print(f"         🌱 개체군 초기화 중 (크기={population})...")
-        pop = self.init_population(population, depth, warmstart_k=warmstart_k)
-        
-        # 초기 개체군 상태 출력
+        pop = self.init_population(population, depth, warmstart_k=warmstart_k, diversity_threshold=diversity_threshold)
+        pop.sort(key=lambda x: (-(x.fitness if np.isfinite(x.fitness) else -np.inf)))
+
         valid_pop = [ind for ind in pop if np.isfinite(ind.fitness)]
         if valid_pop:
-            best_init = max(ind.fitness for ind in valid_pop)
+            leader = valid_pop[0]
             avg_init = np.mean([ind.fitness for ind in valid_pop])
-            print(f"         📊 초기 개체군: {len(valid_pop)}/{population}개 유효, 최고IC={best_init:.6f}, 평균IC={avg_init:.6f}")
+            leader_metrics = leader.metrics.ic_by_horizon if leader.metrics else {}
+            horizon_snapshot = ", ".join(
+                [f"h{hz}:{leader_metrics.get(hz, 0.0):.3f}" for hz in sorted(self.metric_weights["horizons"].keys())]
+            )
+            print(f"         📊 초기 개체군: {len(valid_pop)}/{population}개 유효, 최고={leader.fitness:.4f}, 평균={avg_init:.4f}")
+            if horizon_snapshot:
+                print(f"            ↳ 기간별 IC: {horizon_snapshot}")
         else:
             print(f"         ⚠️ 초기 개체군: 유효한 개체 없음")
 
         for ind in pop:
-            if np.isfinite(ind.fitness) and (self.pca_sim_to_archive(ind, threshold=diversity_threshold) < diversity_threshold):
-                self.archive.append(ind)
+            self._update_archive(ind, diversity_threshold)
 
         print(f"         🔄 진화 시작 ({generations}세대)...")
         for gen in range(generations):
-            # 매 10세대마다 또는 마지막 세대에 진행상황 출력
-            if gen % 10 == 0 or gen == generations - 1:
+            self._generation_counter += 1
+            for ind in pop:
+                ind.age += 1
+
+            if gen % 5 == 0 or gen == generations - 1:
                 valid_current = [ind for ind in pop if np.isfinite(ind.fitness)]
                 if valid_current:
-                    best_current = max(ind.fitness for ind in valid_current)
+                    leader = valid_current[0]
                     avg_current = np.mean([ind.fitness for ind in valid_current])
-                    print(f"            🧬 세대 {gen+1:3d}/{generations}: {len(valid_current)}개 유효, 최고IC={best_current:.6f}, 평균IC={avg_current:.6f}")
+                    metrics = leader.metrics
+                    turnover_val = metrics.turnover if metrics else 0.0
+                    coverage_val = metrics.coverage if metrics else 0.0
+                    print(f"            🧬 세대 {gen+1:3d}/{generations}: 최고={leader.fitness:.4f}, 평균={avg_current:.4f}, 회전={turnover_val:.3f}, 커버리지={coverage_val:.2f}")
                 else:
                     print(f"            🧬 세대 {gen+1:3d}/{generations}: 유효한 개체 없음")
-            parents = random.sample(pop, 2) if len(pop) >= 2 else pop
-            if len(parents) < 2:
-                child = mutate(self.rng, parents[0].tree)
-                child_ind = Individual(tree=child)
+
+            if len(pop) < 2:
+                sole = pop[0]
+                child_tree = mutate(self.rng, sole.tree)
+                child_ind = Individual(tree=child_tree)
                 self.evaluate(child_ind)
-                if child_ind.fitness > parents[0].fitness:
+                child_ind.age = 0
+                child_ind.last_improved_gen = self._generation_counter
+                self._update_archive(child_ind, diversity_threshold)
+                if child_ind.fitness > sole.fitness:
                     pop[0] = child_ind
-                    if self.pca_sim_to_archive(child_ind, threshold=diversity_threshold) < diversity_threshold:
-                        self.archive.append(child_ind)
                 continue
 
-            p1, p2 = parents[0], parents[1]
+            p1 = self._tournament_select(pop, k=3)
+            p2 = self._tournament_select(pop, k=3)
+            if p1 is p2 and len(pop) > 2:
+                for _ in range(3):
+                    candidate = self._tournament_select(pop, k=4)
+                    if candidate is not p1:
+                        p2 = candidate
+                        break
 
             children: List[Individual] = []
             if self.rng.random() < p_crossover:
                 c1_tree, c2_tree = crossover(self.rng, p1.tree, p2.tree)
-                children += [Individual(c1_tree), Individual(c2_tree)]
+                children.extend([Individual(tree=c1_tree), Individual(tree=c2_tree)])
             if self.rng.random() < p_mutation:
-                children += [Individual(mutate(self.rng, p1.tree)),
-                             Individual(mutate(self.rng, p2.tree))]
+                children.append(Individual(tree=mutate(self.rng, p1.tree)))
+                if len(pop) > 1:
+                    children.append(Individual(tree=mutate(self.rng, p2.tree)))
             if not children:
-                children = [Individual(mutate(self.rng, p1.tree))]
+                children.append(Individual(tree=mutate(self.rng, p1.tree)))
 
-            for ch in children:
-                self.evaluate(ch)
-                best_parent = p1 if p1.fitness >= p2.fitness else p2
-                if ch.fitness > best_parent.fitness:
-                    try:
-                        idx = pop.index(best_parent)
-                        pop[idx] = ch
-                    except ValueError:
-                        pass
-                    if self.pca_sim_to_archive(ch, threshold=diversity_threshold) < diversity_threshold:
-                        self.archive.append(ch)
+            prev_best = pop[0].fitness if pop else -np.inf
 
+            for child in children:
+                self.evaluate(child)
+                child.age = 0
+                child.last_improved_gen = self._generation_counter
+                self._update_archive(child, diversity_threshold)
+
+            pop.extend(children)
             pop.sort(key=lambda x: (-(x.fitness if np.isfinite(x.fitness) else -np.inf)))
             pop = pop[:population]
 
+            if pop and pop[0].fitness > prev_best + 1e-6:
+                pop[0].last_improved_gen = self._generation_counter
+
+            if (gen + 1) % self.age_layer_span == 0:
+                self._refresh_stale_population(pop, depth, diversity_threshold)
+                pop.sort(key=lambda x: (-(x.fitness if np.isfinite(x.fitness) else -np.inf)))
+
         pop.sort(key=lambda x: (-(x.fitness if np.isfinite(x.fitness) else -np.inf)))
-        elites = []
+        elites: List[Individual] = []
+        diversity_gate = max(0.0, 1.0 - diversity_threshold)
         for ind in pop:
             if len(elites) >= n_keep:
                 break
-            if self.pca_sim_to_archive(ind, threshold=diversity_threshold) < diversity_threshold:
+            novelty = ind.metrics.novelty if ind.metrics else self.novelty_score(ind)
+            if novelty >= diversity_gate or not elites:
                 elites.append(ind)
         return elites
 
@@ -730,9 +1085,20 @@ class AutoAlphaGA:
             # 해당 깊이 결과 요약
             valid_elites = [e for e in elites if np.isfinite(e.fitness)]
             if valid_elites:
-                best_ic = max(e.fitness for e in valid_elites)
-                avg_ic = np.mean([e.fitness for e in valid_elites])
-                print(f"         ✅ 완료: {len(valid_elites)}개 엘리트, 최고IC={best_ic:.6f}, 평균IC={avg_ic:.6f}")
+                valid_elites.sort(key=lambda x: (-(x.fitness if np.isfinite(x.fitness) else -np.inf)))
+                leader = valid_elites[0]
+                best_score = leader.fitness
+                avg_score = np.mean([e.fitness for e in valid_elites])
+                leader_metrics = leader.metrics
+                turnover_val = leader_metrics.turnover if leader_metrics else 0.0
+                horizon_snapshot = ""
+                if leader_metrics:
+                    horizon_snapshot = ", ".join(
+                        [f"h{hz}:{leader_metrics.ic_by_horizon.get(hz, 0.0):.3f}" for hz in sorted(self.metric_weights["horizons"].keys())]
+                    )
+                print(f"         ✅ 완료: {len(valid_elites)}개 엘리트, 최고점={best_score:.4f}, 평균점수={avg_score:.4f}, 회전={turnover_val:.3f}")
+                if horizon_snapshot:
+                    print(f"            ↳ 기간별 IC: {horizon_snapshot}")
             else:
                 print(f"         ⚠️ 완료: 유효한 엘리트 없음")
         

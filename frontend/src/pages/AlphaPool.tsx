@@ -328,13 +328,25 @@ export const AlphaPool: React.FC = () => {
             },
           }));
 
-          const formattedAlphas = (data.results || []).map((alpha: any, index: number) => ({
-            id: `alpha_${Date.now()}_${index}`,
-            name: `알파 #${index + 1}`,
-            expression: alpha.expression,
-            fitness: alpha.fitness,
-            selected: false,
-          }));
+          const formattedAlphas = (data.results || []).map((alpha: any, index: number) => {
+            // 10자리 랜덤 해시값 생성 함수
+            const generateHash = () => {
+              const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+              let result = '';
+              for (let i = 0; i < 10; i++) {
+                result += chars.charAt(Math.floor(Math.random() * chars.length));
+              }
+              return result;
+            };
+
+            return {
+              id: `alpha_${Date.now()}_${index}`,
+              name: `알파_${generateHash()}`, // 10자리 랜덤 해시값으로 이름 생성
+              expression: alpha.expression,
+              fitness: alpha.fitness,
+              selected: false,
+            };
+          });
 
           setAlphaList(formattedAlphas);
           antdMessage.success('GA가 완료되었습니다!');
