@@ -43,7 +43,11 @@ class AlphaDataset:
         if not isinstance(self.frame, pd.DataFrame):
             raise TypeError("AlphaDataset expects a pandas DataFrame input")
         # 호출자에게 다시 누출되지 않도록 복사본에서 작업합니다.
-        if not self.frame.flags.writeable:
+        writable_flag = getattr(self.frame.flags, "writable", None)
+        if writable_flag is None:
+            writable_flag = getattr(self.frame.flags, "writeable", None)
+
+        if writable_flag is False:
             self.frame = self.frame.copy()
         else:
             self.frame = self.frame.copy()

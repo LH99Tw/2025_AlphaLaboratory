@@ -53,6 +53,7 @@ export const theme = {
       h1: '2.5rem',     // 40px
       h2: '2rem',       // 32px
       h3: '1.5rem',     // 24px
+      h4: '1.25rem',    // 20px
       body: '1rem',     // 16px
       caption: '0.875rem', // 14px
       code: '0.875rem', // 14px

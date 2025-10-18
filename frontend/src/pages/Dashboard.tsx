@@ -366,7 +366,7 @@ export const Dashboard: React.FC = () => {
     }
   }, []);
 
-  const handleSaveAlpha = async (values: any) => {
+  const handleSaveAlpha = useCallback(async (values: any) => {
     if (!user) {
       message.error('알파를 저장하려면 로그인이 필요합니다.');
       return;
@@ -398,9 +398,9 @@ export const Dashboard: React.FC = () => {
       console.error('알파 저장 실패:', error);
       message.error('알파 저장에 실패했습니다.');
     }
-  };
+  }, [user, editingAlpha]);
 
-  const handleDeleteAlpha = async (alphaId: string) => {
+  const handleDeleteAlpha = useCallback(async (alphaId: string) => {
     if (!user) {
       message.error('알파를 삭제하려면 로그인이 필요합니다.');
       return;
@@ -421,7 +421,7 @@ export const Dashboard: React.FC = () => {
       console.error('알파 삭제 실패:', error);
       message.error('알파 삭제에 실패했습니다.');
     }
-  };
+  }, [user]);
 
   const handleEditAlpha = (alpha: StoredAlpha) => {
     setEditingAlpha(alpha);

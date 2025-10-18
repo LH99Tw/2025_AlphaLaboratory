@@ -570,7 +570,7 @@ def crossover(rng: random.Random, a: Node, b: Node) -> Tuple[Node, Node]:
     return a, b
 
 
-@dataclass
+@dataclass(eq=False)
 class Individual:
     """개체 표현: 수식 트리 + 적합도(단면 IC) + PCA 벡터/팩터행렬 캐시"""
     tree: Node

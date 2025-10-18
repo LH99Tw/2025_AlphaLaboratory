@@ -25,7 +25,7 @@ export const checkHealth = async () => {
 };
 
 // 📈 백테스트 API
-export const runBacktest = async (params: BacktestParams): Promise<ApiResponse> => {
+export const runBacktest = async (params: BacktestParams): Promise<ApiResponse & { task_id?: string; status_url?: string }> => {
   const response = await api.post('/api/backtest', params, { withCredentials: true });
   return response.data;
 };

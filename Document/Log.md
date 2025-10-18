@@ -1100,3 +1100,8 @@ allowed_fields = ['name', 'email', 'profile_emoji']
     - AutoAlphaGA 초기 워밍스타트 후보 수 제한 버그를 수정하고, 안전한 나눗셈·입력 정렬·자산축 PCA 벡터·정보비율 클램핑으로 수만 단위 적합도 폭주 문제를 차단했습니다. (`GA_algorithm/autoalpha_ga.py`)
     - `correlation` 연산은 인덱스/컬럼 교집합 정렬 후 계산하며, `FitnessMetrics` 정보비율은 변동성 바닥값(0.02) 적용과 ±10 범위로 제한해 수치 안정성을 확보했습니다. (`GA_algorithm/autoalpha_ga.py`)
     - AlphaPool 상단에 공유/개인 알파 현황 카드와 최근 개인 알파 목록을 추가하고, 저장 직후 AlphaStore 집계가 자동 새로고침되도록 연동했습니다. (`frontend/src/pages/AlphaPool.tsx`)
+
+[26](20250117):백테스트 파이프라인 실시간 연동 및 상태 모니터링 강화
+    - `/api/backtest`가 세션 사용자의 레지스트리에서 공용·개인 알파를 불러와 직접 팩터를 계산하도록 개선해 CSV에 없는 개인 알파도 즉시 백테스트할 수 있습니다. (`backend/app.py`, `alphas/base.py`, `alphas/transpiler.py`)
+    - 백테스트 진행률·로그를 API 상태 객체에 누적하고, 작업 ID를 보존해 페이지 이동 후에도 폴링을 재개할 수 있게 했습니다. (`backend/app.py`)
+    - 프론트의 Backtest 페이지는 알파 목록을 그룹화하여 표시하고, 진행 카드에 실시간 로그·작업 ID·진행률 바를 추가했습니다. 레이아웃도 수정해 푸터가 가려지지 않고 좌우 패널이 정렬됩니다. (`frontend/src/pages/Backtest.tsx`, `frontend/src/components/common/GlassInput.tsx`, `frontend/src/types/index.ts`)

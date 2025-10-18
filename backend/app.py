@@ -34,6 +34,7 @@ from alphas import (
     AlphaTranspilerError,
     build_shared_registry,
     compile_expression,
+    AlphaDataset,
 )
 
 def load_real_data_for_ga():
@@ -145,6 +146,71 @@ def create_minimal_dummy_data():
     
     logger.info(f"더미 GA 데이터 생성: {len(dates)}일, {len(tickers)}종목")
     return df_data
+
+
+def prepare_alpha_dataset_from_price(ticker_df: pd.DataFrame) -> AlphaDataset:
+    """
+    백테스트용 가격 데이터를 AlphaDataset으로 변환합니다.
+    ticker_df는 단일 종목 데이터여야 하며 Date 컬럼을 포함해야 합니다.
+    """
+    required = {'Date', 'Open', 'High', 'Low', 'Close', 'Volume'}
+    missing = required.difference(ticker_df.columns)
+    if missing:
+        raise ValueError(f"가격 데이터에 필요한 컬럼이 없습니다: {', '.join(missing)}")
+
+    ticker_df = ticker_df.sort_values('Date')
+    alpha_frame = pd.DataFrame(index=ticker_df['Date'])
+    alpha_frame['S_DQ_OPEN'] = ticker_df['Open'].values
+    alpha_frame['S_DQ_HIGH'] = ticker_df['High'].values
+    alpha_frame['S_DQ_LOW'] = ticker_df['Low'].values
+    alpha_frame['S_DQ_CLOSE'] = ticker_df['Close'].values
+    alpha_frame['S_DQ_VOLUME'] = ticker_df['Volume'].values
+    alpha_frame['S_DQ_AMOUNT'] = ticker_df['Close'].values * ticker_df['Volume'].values
+    alpha_frame['S_DQ_PCTCHANGE'] = alpha_frame['S_DQ_CLOSE'].pct_change().fillna(0)
+    return AlphaDataset(alpha_frame)
+
+
+def compute_factor_series_from_registry(factor_name: str,
+                                        registry: AlphaRegistry,
+                                        price_data: pd.DataFrame) -> pd.DataFrame:
+    """
+    AlphaRegistry 정의를 사용해 팩터 값을 계산합니다.
+    반환값은 Date, Ticker, factor_name 컬럼을 가진 DataFrame입니다.
+    """
+    if factor_name not in registry:
+        raise KeyError(f"등록되지 않은 알파: {factor_name}")
+
+    definition = registry.get(factor_name)
+    frames: List[pd.DataFrame] = []
+
+    for ticker, ticker_df in price_data.groupby('Ticker'):
+        dataset = prepare_alpha_dataset_from_price(ticker_df)
+        try:
+            factor_values = definition.compute(dataset)
+        except Exception as exc:
+            raise RuntimeError(f"{factor_name} 계산 실패 ({ticker}): {exc}") from exc
+
+        if isinstance(factor_values, pd.DataFrame):
+            if factor_values.shape[1] > 1:
+                factor_values = factor_values.iloc[:, 0]
+            else:
+                factor_values = factor_values.iloc[:, 0]
+        elif not isinstance(factor_values, pd.Series):
+            factor_values = pd.Series(factor_values, index=dataset.frame.index)
+
+        factor_values = factor_values.reindex(dataset.frame.index).ffill().bfill()
+
+        frames.append(pd.DataFrame({
+            'Date': dataset.frame.index,
+            'Ticker': ticker,
+            factor_name: factor_values.values
+        }))
+
+    if not frames:
+        raise RuntimeError(f"{factor_name} 팩터 계산 결과가 없습니다.")
+
+    result = pd.concat(frames, ignore_index=True)
+    return result
 
 def run_ga_alternative(df_data, max_depth, population_size, generations):
     """run_ga.py 방식의 대안 GA 실행"""
@@ -662,6 +728,8 @@ def run_backtest():
         transaction_cost = data.get('transaction_cost', 0.001)
         quantile = data.get('quantile', 0.1)
         max_factors = data.get('max_factors', len(factors))
+        username = session.get('username')
+        registry = get_alpha_registry(username)
         
         if not backtest_system:
             return jsonify({'error': '백테스트 시스템이 초기화되지 않았습니다'}), 500
@@ -683,13 +751,26 @@ def run_backtest():
             }
         }
         
+        def append_status(progress: Optional[int] = None, log: Optional[str] = None):
+            status = backtest_status.get(task_id)
+            if not status:
+                return
+            if progress is not None:
+                status['progress'] = max(0, min(100, progress))
+            if log:
+                logs = status.setdefault('logs', [])
+                timestamp = datetime.now().strftime('%H:%M:%S')
+                logs.append(f"{timestamp} · {log}")
+                if len(logs) > 50:
+                    logs.pop(0)
+
         def run_backtest_async():
             try:
                 logger.info(f"백테스트 시작: {task_id}")
-                backtest_status[task_id]['progress'] = 10
+                append_status(progress=10, log="백테스트 작업을 시작했습니다.")
                 
                 # 백테스트 실행 (올바른 메서드 사용)
-                backtest_status[task_id]['progress'] = 30
+                append_status(progress=20, log="백테스트 설정을 초기화합니다.")
                 
                 # 백테스트 설정 업데이트
                 backtest_system.config['backtest_settings']['max_factors'] = max_factors
@@ -698,6 +779,7 @@ def run_backtest():
                 backtest_system.config['backtest_settings']['rebalancing_frequency'] = rebalancing_frequency
                 
                 logger.info(f"백테스트 설정: 팩터 {len(factors)}개, 리밸런싱: {rebalancing_frequency}, 거래비용: {transaction_cost}")
+                append_status(progress=30, log=f"선택된 팩터 {len(factors)}개를 준비합니다.")
                 
                 results = backtest_system.run_backtest(
                     start_date=start_date,
@@ -708,12 +790,15 @@ def run_backtest():
                     rebalancing_frequencies=[rebalancing_frequency]
                 )
                 
-                backtest_status[task_id]['progress'] = 70
+                append_status(progress=50, log="사전 계산된 백테스트 결과를 취합합니다.")
                 
                 # 실제 백테스트 결과 사용 (더미 데이터 제거)
                 if hasattr(results, 'items') and results:
                     filtered_results = {}
+                    total_factors = len(factors) or 1
+                    processed_count = 0
                     for factor in factors:
+                        processed_count += 1
                         for k, v in results.items():
                             if factor in k:
                                 filtered_results[factor] = v
@@ -730,11 +815,17 @@ def run_backtest():
                                 price_file = 'database/sp500_interpolated.csv'
                                 alpha_file = 'database/sp500_with_alphas.csv'
                                 
-                                price_cols = ['Date', 'Ticker', 'Close']
+                                price_cols = ['Date', 'Ticker', 'Open', 'High', 'Low', 'Close', 'Volume']
                                 alpha_cols = ['Date', 'Ticker', factor]
                                 
                                 price_data = pd.read_csv(price_file, usecols=price_cols, parse_dates=['Date'])
-                                alpha_data = pd.read_csv(alpha_file, usecols=alpha_cols, parse_dates=['Date'])
+                                
+                                try:
+                                    alpha_data = pd.read_csv(alpha_file, usecols=alpha_cols, parse_dates=['Date'])
+                                    if factor not in alpha_data.columns:
+                                        alpha_data = pd.DataFrame(columns=['Date', 'Ticker', factor])
+                                except ValueError:
+                                    alpha_data = pd.DataFrame(columns=['Date', 'Ticker', factor])
                                 
                                 # 날짜 필터링
                                 start_date_dt = pd.to_datetime(start_date)
@@ -747,8 +838,20 @@ def run_backtest():
                                 price_data = price_data.sort_values(['Date', 'Ticker']).reset_index(drop=True)
                                 alpha_data = alpha_data.sort_values(['Date', 'Ticker']).reset_index(drop=True)
                                 
+                                if alpha_data.empty:
+                                    logger.info(f"{factor} 컬럼이 사전 계산 데이터에 없어 직접 계산합니다.")
+                                    append_status(log=f"{factor} 팩터를 실시간으로 계산합니다.")
+                                    alpha_data = compute_factor_series_from_registry(factor, registry, price_data)
+                                else:
+                                    alpha_data = alpha_data[['Date', 'Ticker', factor]]
+
                                 # 데이터 병합
-                                merged_data = pd.merge(price_data, alpha_data, on=['Date', 'Ticker'], how='inner')
+                                merged_data = pd.merge(
+                                    price_data[['Date', 'Ticker', 'Close']],
+                                    alpha_data,
+                                    on=['Date', 'Ticker'],
+                                    how='inner'
+                                )
                                 
                                 if len(merged_data) == 0:
                                     raise Exception("병합된 데이터가 없습니다")
@@ -864,6 +967,7 @@ def run_backtest():
                                 }
                                 
                                 logger.info(f"팩터 {factor} 실제 백테스트 결과: CAGR={cagr:.4f}, Sharpe={sharpe:.4f}")
+                                append_status(log=f"{factor} 백테스트 완료 (CAGR {(cagr*100):.2f}%)")
                                 
                             except Exception as e:
                                 logger.error(f"팩터 {factor} 백테스트 실패: {e}")
@@ -876,6 +980,11 @@ def run_backtest():
                                     'win_rate': 0.0,
                                     'volatility': 0.0
                                 }
+                                append_status(log=f"{factor} 백테스트 실패: {e}")
+                        append_status(
+                            progress=50 + int(30 * processed_count / total_factors),
+                            log=f"{factor} 처리 완료 ({processed_count}/{total_factors})"
+                        )
                 else:
                     # results가 dict가 아닌 경우 기본값 사용 (랜덤이 아닌 고정값)
                     filtered_results = {
@@ -890,7 +999,7 @@ def run_backtest():
                         for factor in factors
                     }
                 
-                backtest_status[task_id]['progress'] = 90
+                append_status(progress=85, log="결과를 정리하고 있습니다.")
                 
                 # 결과를 JSON 직렬화 가능한 형태로 변환
                 serializable_results = {}
@@ -903,6 +1012,7 @@ def run_backtest():
                     else:
                         serializable_results[factor] = str(result)
                 
+                snapshot_logs = backtest_status.get(task_id, {}).get('logs', [])
                 backtest_status[task_id] = {
                     'status': 'completed',
                     'progress': 100,
@@ -912,13 +1022,16 @@ def run_backtest():
                         'end_date': end_date,
                         'factors': factors
                     },
-                    'end_time': datetime.now().isoformat()
+                    'end_time': datetime.now().isoformat(),
+                    'logs': snapshot_logs
                 }
                 
                 logger.info(f"백테스트 완료: {task_id}")
+                append_status(progress=100, log="백테스트가 완료되었습니다.")
                 
             except Exception as e:
                 logger.error(f"백테스트 실행 오류: {str(e)}")
+                snapshot_logs = backtest_status.get(task_id, {}).get('logs', [])
                 backtest_status[task_id] = {
                     'status': 'failed',
                     'error': str(e),
@@ -927,8 +1040,10 @@ def run_backtest():
                         'end_date': end_date,
                         'factors': factors
                     },
-                    'end_time': datetime.now().isoformat()
+                    'end_time': datetime.now().isoformat(),
+                    'logs': snapshot_logs
                 }
+                append_status(log=f"백테스트 실패: {e}")
         
         # 비동기 실행
         thread = threading.Thread(target=run_backtest_async)
@@ -963,6 +1078,7 @@ def run_ga():
         population_size = data.get('population_size', 50)
         generations = data.get('generations', 20)
         max_depth = data.get('max_depth', 3)
+        max_survivors = max(1, int(data.get('max_alphas', 10)))
         
         if not ga_system:
             return jsonify({'error': 'GA 시스템이 초기화되지 않았습니다'}), 500
@@ -976,7 +1092,8 @@ def run_ga():
             'parameters': {
                 'population_size': population_size,
                 'generations': generations,
-                'max_depth': max_depth
+                'max_depth': max_depth,
+                'max_alphas': max_survivors,
             }
         }
         
@@ -1050,7 +1167,8 @@ def run_ga():
                         # 실제 GA 결과가 있는 경우 (또는 빈 리스트인 경우 더미 데이터로 폴백)
                         if best_alphas and len(best_alphas) > 0:
                             formatted_alphas = []
-                            for ind in best_alphas[:max_depth * 2]:  # 깊이 x2 만큼 가져오기
+                            elite_cap = max(1, min(max_survivors, len(best_alphas)))
+                            for ind in best_alphas[:elite_cap]:
                                 if hasattr(ind, 'tree') and hasattr(ind, 'fitness'):
                                     try:
                                         expr = ind.tree.to_python_expr() if hasattr(ind.tree, 'to_python_expr') else str(ind.tree)
@@ -1067,7 +1185,22 @@ def run_ga():
                                 best_alphas = formatted_alphas
                                 logger.info(f"실제 GA 결과 사용: {len(best_alphas)}개")
                             else:
-                                raise ValueError("GA 결과 변환 실패")
+                                logger.warning("GA 결과 직렬화 실패, 트리 표현 문자열로 폴백합니다.")
+                                fallback_alphas = []
+                                for ind in best_alphas[:elite_cap]:
+                                    try:
+                                        fallback_alphas.append({
+                                            "expression": repr(getattr(ind, "tree", ind)),
+                                            "fitness": abs(float(getattr(ind, "fitness", 0.0) or 0.0))
+                                        })
+                                    except Exception as err:
+                                        logger.warning(f"폴백 변환 실패: {err}")
+                                        continue
+                                if fallback_alphas:
+                                    best_alphas = fallback_alphas
+                                    logger.info(f"폴백 GA 결과 사용: {len(best_alphas)}개")
+                                else:
+                                    raise ValueError("GA 결과 변환 실패")
                         else:
                             # GA가 엘리트를 찾지 못한 경우 - 명확한 오류 메시지 출력
                             log_to_status(f"❌ 실제 GA에서 결과 없음 (길이: {len(best_alphas) if best_alphas else 0})")

@@ -132,6 +132,8 @@ def compile_expression(expression: str, *, name: Optional[str] = None) -> Transp
         raise AlphaTranspilerError("Alpha expression cannot be empty")
 
     expression = expression.strip()
+    if "self." in expression:
+        expression = expression.replace("self.", "")
     filename = f"<alpha:{name or 'expression'}>"
 
     try:

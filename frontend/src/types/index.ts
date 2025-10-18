@@ -14,6 +14,7 @@ export interface BacktestParams {
   rebalancing_frequency: 'daily' | 'weekly' | 'monthly' | 'quarterly';
   transaction_cost: number;
   quantile: number;
+  max_factors?: number;
 }
 
 // 📊 백테스트 결과
@@ -148,6 +149,8 @@ export interface ApiResponse<T = any> {
   data?: T;
   error?: string;
   message?: string;
+  task_id?: string;
+  status_url?: string;
 }
 
 // 🔄 백테스트 상태
@@ -156,6 +159,8 @@ export interface BacktestStatus {
   progress: number;
   results?: Record<string, BacktestResult>;
   error?: string;
+  logs?: string[];
+  parameters?: Record<string, any>;
 }
 
 // 📊 알파 저장소 타입 (백엔드 호환용)
