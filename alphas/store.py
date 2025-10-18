@@ -5,7 +5,7 @@ import os
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .base import AlphaDefinition
 from .transpiler import TranspiledAlpha, compile_expression
@@ -17,7 +17,7 @@ def _utc_now() -> str:
 
 @dataclass
 class StoredAlpha:
-    """지속된 알파 사양."""
+    """Persisted alpha specification."""
 
     id: str
     name: str
@@ -36,6 +36,17 @@ class StoredAlpha:
         expression = payload.get("expression") or payload.get("alpha_expression")
         if not expression:
             raise ValueError("Alpha expression is required")
+
+        raw_tags = payload.get("tags", [])
+        if isinstance(raw_tags, str):
+            tags = [tag.strip() for tag in raw_tags.split(",") if tag.strip()]
+        else:
+            tags = [str(tag).strip() for tag in raw_tags if str(tag).strip()]
+
+        metadata_payload = payload.get("metadata") or {}
+        if not isinstance(metadata_payload, dict):
+            metadata_payload = {}
+
         return cls(
             id=payload.get("id") or payload.get("alpha_id") or cls._generate_id(),
             name=payload.get("name") or payload.get("alpha_name") or payload.get("id"),
@@ -46,8 +57,8 @@ class StoredAlpha:
             created_at=payload.get("created_at") or _utc_now(),
             updated_at=payload.get("updated_at") or payload.get("created_at") or _utc_now(),
             description=payload.get("description", ""),
-            tags=list(payload.get("tags", [])),
-            metadata=dict(payload.get("metadata", {})),
+            tags=tags,
+            metadata=dict(metadata_payload),
         )
 
     @staticmethod
@@ -77,6 +88,9 @@ class StoredAlpha:
             "expression": self.expression,
             "transpiler_version": transpiled.version,
             "python_source": transpiled.python_source,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "owner": self.owner,
         }
         return AlphaDefinition(
             name=self.name,
@@ -198,12 +212,50 @@ class AlphaStore:
         existing_payload = self._read_json(private_path, {"alphas": []})
         entries = existing_payload.get("alphas", [])
 
+        index_by_id: Dict[str, int] = {}
+        index_by_expr: Dict[Tuple[str, Optional[str]], int] = {}
+        for idx, entry in enumerate(entries):
+            alpha_id = entry.get("id")
+            if alpha_id:
+                index_by_id[alpha_id] = idx
+            expr = (entry.get("expression") or "").strip().lower()
+            if expr:
+                index_by_expr[(expr, entry.get("owner"))] = idx
+
         new_items: List[StoredAlpha] = []
         for record in records:
             stored = StoredAlpha.from_dict(record, source="private", owner=username)
-            stored.created_at = _utc_now()
-            stored.updated_at = stored.created_at
-            entries.append(stored.to_dict())
+            expr_key = (stored.expression.strip().lower(), username)
+
+            if stored.id in index_by_id:
+                idx = index_by_id[stored.id]
+                previous = entries[idx]
+                stored.created_at = previous.get("created_at", stored.created_at)
+                stored.owner = previous.get("owner", username)
+                stored.updated_at = _utc_now()
+                entries[idx] = stored.to_dict()
+                if expr_key[0]:
+                    index_by_expr[expr_key] = idx
+            elif expr_key in index_by_expr:
+                idx = index_by_expr[expr_key]
+                previous = entries[idx]
+                stored.id = previous.get("id", stored.id)
+                stored.created_at = previous.get("created_at", stored.created_at)
+                stored.owner = previous.get("owner", username)
+                stored.updated_at = _utc_now()
+                entries[idx] = stored.to_dict()
+                index_by_id[stored.id] = idx
+                if expr_key[0]:
+                    index_by_expr[expr_key] = idx
+            else:
+                stored.created_at = stored.created_at or _utc_now()
+                stored.updated_at = stored.updated_at or stored.created_at
+                entries.append(stored.to_dict())
+                idx = len(entries) - 1
+                index_by_id[stored.id] = idx
+                if expr_key[0]:
+                    index_by_expr[expr_key] = idx
+
             new_items.append(stored)
 
         self._write_json(private_path, {"alphas": entries})

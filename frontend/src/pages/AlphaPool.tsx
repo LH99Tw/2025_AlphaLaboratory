@@ -430,7 +430,15 @@ export const AlphaPool: React.FC = () => {
       const data = await saveUserAlphas(selectedAlphas);
 
       if (data.success) {
-        antdMessage.success(`${selectedAlphas.length}개의 알파가 저장되었습니다!`);
+        setAlphaList(prev =>
+          prev.map(alpha =>
+            selectedAlphas.some(sel => sel.id === alpha.id)
+              ? { ...alpha, selected: false }
+              : alpha
+          )
+        );
+        const savedCount = data.summary?.private_count ?? selectedAlphas.length;
+        antdMessage.success(`${selectedAlphas.length}개의 알파가 저장되었습니다! (총 ${savedCount}개 보유)`);
       } else {
         throw new Error(data.error || '저장 실패');
       }

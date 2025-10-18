@@ -110,8 +110,35 @@ export const getGAStatus = async (taskId: string) => {
   return response.data;
 };
 
-export const saveUserAlphas = async (alphas: Array<{ name: string; expression: string; fitness: number }>) => {
-  const response = await api.post('/api/user-alpha/save', { alphas }, { withCredentials: true });
+export const fetchUserAlphas = async () => {
+  const response = await api.get('/api/user-alpha/list', { withCredentials: true });
+  return response.data;
+};
+
+export const saveUserAlphas = async (alphas: Array<{ id?: string; name: string; expression: string; description?: string; tags?: string[]; fitness?: number }>) => {
+  const payload = alphas.map(alpha => {
+    const fitness = typeof alpha.fitness === 'number' && Number.isFinite(alpha.fitness)
+      ? alpha.fitness
+      : undefined;
+
+    return {
+      id: alpha.id,
+      name: alpha.name,
+      expression: alpha.expression,
+      description: alpha.description ?? '',
+      tags: alpha.tags ?? [],
+      metadata: {
+        fitness,
+      },
+    };
+  });
+
+  const response = await api.post('/api/user-alpha/save', { alphas: payload }, { withCredentials: true });
+  return response.data;
+};
+
+export const deleteUserAlpha = async (alphaId: string) => {
+  const response = await api.delete(`/api/user-alpha/delete/${alphaId}`, { withCredentials: true });
   return response.data;
 };
 

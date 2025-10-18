@@ -1088,3 +1088,10 @@ allowed_fields = ['name', 'email', 'profile_emoji']
     - 개인 알파 저장소를 `database/alpha_store/` 구조(공용 shared.json + private/<username>.json)로 이전하고, 레거시 `user_alphas.json`을 자동 마이그레이션하도록 했습니다.
     - `backend/app.py`와 `backend_module/4_ComputeAlphas.py`를 새로운 레지스트리 기반으로 통합해 공유/개인 알파를 일관된 파이프라인에서 계산·노출합니다.
     - ImplementationSummary, SystemReview, DataStructure 문서를 최신 아키텍처와 응답 스펙에 맞게 업데이트했습니다.
+
+[24](20250117):알파 관리 UX/스토어 안정화 및 세션 연동 수정
+    - CSV/JSON 로그인 흐름에서 `session['username']`이 유지되도록 보완하여 알파 저장 API가 “로그인이 필요합니다”를 잘못 띄우지 않도록 했습니다. (`backend/app.py`)
+    - `AlphaStore.add_private`를 중복 감지 가능하도록 확장하고 메타데이터/태그 정규화, 생성·수정 시각 보존 로직을 추가했습니다. (`alphas/store.py`)
+    - `/api/user-alpha/save|list|delete`가 단일 응답 스키마(`shared_alphas`, `private_alphas`, `summary`)를 반환하도록 리팩터링하고, Dashboard/AlphaPool에서 즉시 반영되도록 API 연동을 일원화했습니다. (`backend/app.py`, `frontend/src/services/api.ts`)
+    - Dashboard 알파 탭 UI를 디자인 문서 기준으로 재정비하고, 개인/공용 알파 분리·카드 카운트·편집/삭제 흐름을 정상화했습니다. (`frontend/src/pages/Dashboard.tsx`)
+    - AlphaPool 저장 패널은 선택 상태 초기화·피드백 문구 정교화로 UX를 개선하고 Null fitness도 안전하게 처리합니다. (`frontend/src/pages/AlphaPool.tsx`, `frontend/src/components/AlphaFactory/AlphaListPanel.tsx`)

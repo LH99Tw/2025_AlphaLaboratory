@@ -6,58 +6,6 @@ export interface AlphaFactor {
   formula?: string;
 }
 
-// 📊 알파 정의 타입 (백엔드에서 반환되는 형식)
-export interface AlphaDefinition {
-  name: string;
-  source: string;
-  provider: string;
-  owner?: string;
-  description: string;
-  version: string;
-  tags: string[];
-  metadata: Record<string, any>;
-}
-
-// 📊 개인 알파 저장 타입
-export interface StoredAlpha {
-  id: string;
-  name: string;
-  expression: string;
-  source: string;
-  provider: string;
-  owner?: string;
-  created_at: string;
-  updated_at: string;
-  description: string;
-  tags: string[];
-  metadata: Record<string, any>;
-}
-
-// 📊 알파 관리 응답 타입
-export interface AlphaManagementResponse {
-  success: boolean;
-  alphas?: StoredAlpha[];
-  total_count?: number;
-  shared_definitions?: AlphaDefinition[];
-  private_definitions?: AlphaDefinition[];
-}
-
-// 📊 알파 추가 요청 타입
-export interface AddAlphaRequest {
-  name: string;
-  expression: string;
-  description?: string;
-  tags?: string[];
-}
-
-// 📊 알파 수정 요청 타입
-export interface UpdateAlphaRequest {
-  name?: string;
-  expression?: string;
-  description?: string;
-  tags?: string[];
-}
-
 // 📈 백테스트 파라미터
 export interface BacktestParams {
   start_date: string;
@@ -208,4 +156,56 @@ export interface BacktestStatus {
   progress: number;
   results?: Record<string, BacktestResult>;
   error?: string;
+}
+
+// 📊 알파 저장소 타입 (백엔드 호환용)
+export interface StoredAlpha {
+  id: string;
+  name: string;
+  expression?: string;
+  source: string;
+  provider: string;
+  owner?: string;
+  created_at?: string;
+  updated_at?: string;
+  description?: string;
+  tags?: string[];
+  metadata?: {
+    fitness?: number | null;
+    transpiler_version?: string;
+    python_source?: string;
+    expression?: string;
+    created_at?: string;
+    updated_at?: string;
+    [key: string]: any;
+  };
+}
+
+// 📊 알파 정의 타입
+export interface AlphaDefinition {
+  name: string;
+  compute: (dataset: any) => any;
+  source: string;
+  provider: string;
+  owner?: string;
+  description: string;
+  version: string;
+  tags: string[];
+  metadata: Record<string, any>;
+}
+
+// 📝 알파 추가 요청 타입
+export interface AddAlphaRequest {
+  name: string;
+  expression: string;
+  description?: string;
+  tags?: string[];
+  metadata?: {
+    fitness?: number;
+  };
+}
+
+// 📝 알파 수정 요청 타입
+export interface UpdateAlphaRequest extends AddAlphaRequest {
+  id: string;
 }

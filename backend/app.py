@@ -277,25 +277,41 @@ def serialize_alpha_definition(definition) -> Dict[str, Any]:
     """Convert an AlphaDefinition into a serializable dict."""
     payload = definition.as_dict()
     payload["name"] = definition.name
-    payload["metadata"] = dict(payload.get("metadata", {}))
+    metadata = dict(payload.get("metadata", {}))
+    payload["metadata"] = metadata
+    payload["id"] = metadata.get("id") or definition.name
+    payload["expression"] = metadata.get("expression")
+    payload["created_at"] = metadata.get("created_at")
+    payload["updated_at"] = metadata.get("updated_at")
+    payload["owner"] = metadata.get("owner") or payload.get("owner")
+    payload["tags"] = list(payload.get("tags", []))
     return payload
 
 
-@app.route('/api/alphas/shared', methods=['GET'])
-def get_shared_alphas():
-    """공용 알파 목록 조회 (인증 불필요)"""
-    try:
-        shared_definitions = [serialize_alpha_definition(defn) for defn in SHARED_ALPHA_REGISTRY.list(source='shared')]
+def build_user_alpha_payload(username: str) -> Dict[str, Any]:
+    """Assemble shared/private alpha data for responses."""
+    stored_alphas = [alpha.to_dict() for alpha in ALPHA_STORE.list_private(username)]
 
-        return jsonify({
-            'success': True,
-            'alphas': shared_definitions,
-            'total_count': len(shared_definitions)
-        })
+    registry = get_alpha_registry(username)
+    private_definitions = registry.list(owner=username)
+    shared_definitions = SHARED_ALPHA_REGISTRY.list(source="shared")
 
-    except Exception as e:
-        logger.error(f"공용 알파 목록 조회 오류: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+    private_payload = [serialize_alpha_definition(defn) for defn in private_definitions]
+    shared_payload = [serialize_alpha_definition(defn) for defn in shared_definitions]
+
+    summary = {
+        "shared_count": len(shared_payload),
+        "private_count": len(private_payload),
+        "total_count": len(shared_payload) + len(private_payload),
+        "registry_size": len(registry),
+    }
+
+    return {
+        "stored_alphas": stored_alphas,
+        "private_alphas": private_payload,
+        "shared_alphas": shared_payload,
+        "summary": summary,
+    }
 
 # 사용자 인증 관련 함수들
 def load_users():
@@ -1784,52 +1800,66 @@ def save_user_alpha():
         for index, alpha in enumerate(alphas, start=1):
             expression = (alpha.get('expression') or '').strip()
             alpha_name = (alpha.get('name') or f'{username}_alpha_{index:03d}').strip()
-            
+
             if not expression:
                 errors.append(f"{alpha_name}: 알파 수식이 비어 있습니다")
                 continue
-            
+
             try:
                 transpiled = compile_expression(expression, name=alpha_name)
             except AlphaTranspilerError as exc:
                 errors.append(f"{alpha_name}: {exc}")
                 continue
-            
-            metadata = {}
-            if 'fitness' in alpha and alpha['fitness'] is not None:
-                metadata['fitness'] = alpha['fitness']
-            if 'notes' in alpha and alpha['notes']:
-                metadata['notes'] = alpha['notes']
-            
+
+            incoming_metadata = alpha.get('metadata') if isinstance(alpha.get('metadata'), dict) else {}
+            metadata = dict(incoming_metadata)
+
+            fitness_value = metadata.get('fitness') if isinstance(metadata.get('fitness'), (int, float)) else alpha.get('fitness')
+            if fitness_value is not None:
+                try:
+                    metadata['fitness'] = float(fitness_value)
+                except (TypeError, ValueError):
+                    metadata['fitness'] = fitness_value
+
             metadata['transpiler_version'] = transpiled.version
             metadata['python_source'] = transpiled.python_source
-            
+            metadata['expression'] = expression
+
+            tags = alpha.get('tags', [])
+            if isinstance(tags, str):
+                tags = [tag.strip() for tag in tags.split(",") if tag.strip()]
+            elif isinstance(tags, list):
+                tags = [str(tag).strip() for tag in tags if str(tag).strip()]
+            else:
+                tags = []
+
             compiled_records.append({
+                'id': alpha.get('id'),
                 'name': alpha_name,
                 'expression': expression,
                 'description': alpha.get('description', ''),
-                'tags': alpha.get('tags', []),
+                'tags': tags,
                 'metadata': metadata,
             })
-        
+
         if errors:
             return jsonify({
                 'error': '일부 알파 수식을 처리할 수 없습니다',
                 'details': errors
             }), 400
-        
-        stored_items = ALPHA_STORE.add_private(username, compiled_records)
-        registry = get_alpha_registry(username)
-        private_definitions = registry.list(owner=username)
 
+        stored_items = ALPHA_STORE.add_private(username, compiled_records)
         logger.info("사용자 %s의 %d개 알파 저장 완료", username, len(stored_items))
 
-        return jsonify({
+        payload = build_user_alpha_payload(username)
+        payload.update({
             'success': True,
             'message': f'{len(stored_items)}개의 알파가 저장되었습니다',
             'saved_alphas': [item.to_dict() for item in stored_items],
-            'private_definitions': [serialize_alpha_definition(defn) for defn in private_definitions]
+            'is_authenticated': True,
         })
+
+        return jsonify(payload)
         
     except Exception as e:
         logger.error(f"알파 저장 오류: {str(e)}")
@@ -1840,21 +1870,24 @@ def get_user_alphas():
     """사용자 알파 목록 조회"""
     try:
         username = session.get('username')
-        if not username:
-            return jsonify({'error': '로그인이 필요합니다'}), 401
-        
-        stored_alphas = [alpha.to_dict() for alpha in ALPHA_STORE.list_private(username)]
-        registry = get_alpha_registry(username)
-        shared_definitions = [serialize_alpha_definition(defn) for defn in SHARED_ALPHA_REGISTRY.list(source='shared')]
-        private_definitions = [serialize_alpha_definition(defn) for defn in registry.list(owner=username)]
+        if username:
+            payload = build_user_alpha_payload(username)
+            payload.update({"success": True, "is_authenticated": True})
+            return jsonify(payload)
 
+        shared_payload = [serialize_alpha_definition(defn) for defn in SHARED_ALPHA_REGISTRY.list(source='shared')]
         return jsonify({
             'success': True,
-            'alphas': stored_alphas,
-            'total_count': len(stored_alphas),
-            'shared_definitions': shared_definitions,
-            'private_definitions': private_definitions,
-            'registry_size': len(registry)
+            'stored_alphas': [],
+            'private_alphas': [],
+            'shared_alphas': shared_payload,
+            'summary': {
+                'shared_count': len(shared_payload),
+                'private_count': 0,
+                'total_count': len(shared_payload),
+                'registry_size': len(SHARED_ALPHA_REGISTRY),
+            },
+            'is_authenticated': False,
         })
         
     except Exception as e:
@@ -1872,19 +1905,15 @@ def delete_user_alpha(alpha_id):
         if not ALPHA_STORE.delete_private(username, alpha_id):
             return jsonify({'error': '알파를 찾을 수 없습니다'}), 404
 
-        stored_alphas = [alpha.to_dict() for alpha in ALPHA_STORE.list_private(username)]
-        registry = get_alpha_registry(username)
-        private_definitions = [serialize_alpha_definition(defn) for defn in registry.list(owner=username)]
-
         logger.info("사용자 %s의 알파 %s 삭제 완료", username, alpha_id)
 
-        return jsonify({
+        payload = build_user_alpha_payload(username)
+        payload.update({
             'success': True,
             'message': '알파가 삭제되었습니다',
-            'alphas': stored_alphas,
-            'private_definitions': private_definitions,
-            'total_count': len(stored_alphas)
+            'is_authenticated': True,
         })
+        return jsonify(payload)
         
     except Exception as e:
         logger.error(f"알파 삭제 오류: {str(e)}")
@@ -2007,13 +2036,21 @@ def user_login():
         if not user_id:
             return jsonify({'error': '인증에 실패했습니다'}), 401
         
-        # 세션에 사용자 ID 저장
+        # 사용자 정보 조회 (세션 메타데이터로 활용)
+        user_info = user_database.get_user_info(user_id)
+
+        # 세션에 사용자 ID 및 사용자명 저장 (알파 관리 등에서 사용)
         session['user_id'] = user_id
+        if user_info and user_info.get('username'):
+            session['username'] = user_info['username']
+        elif username:
+            session['username'] = username
         
         return jsonify({
             'success': True,
             'message': '로그인 성공',
-            'user_id': user_id
+            'user_id': user_id,
+            'user_info': user_info
         })
         
     except Exception as e:
@@ -2206,6 +2243,7 @@ def user_logout():
     """사용자 로그아웃"""
     try:
         session.pop('user_id', None)
+        session.pop('username', None)
         return jsonify({
             'success': True,
             'message': '로그아웃되었습니다'
@@ -2265,11 +2303,15 @@ def csv_user_login():
         if not user_id:
             return jsonify({'error': '인증에 실패했습니다'}), 401
         
-        # 세션에 사용자 ID 저장
-        session['user_id'] = user_id
-        
         # 사용자 정보 조회
         user_info = csv_manager.get_user_info(user_id)
+        
+        # 세션에 사용자 메타데이터 저장 (알파 관리 모듈에서 사용)
+        session['user_id'] = user_id
+        if user_info and user_info.get('username'):
+            session['username'] = user_info['username']
+        elif username:
+            session['username'] = username
         
         return jsonify({
             'success': True,
