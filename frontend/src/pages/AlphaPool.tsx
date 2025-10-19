@@ -509,7 +509,7 @@ export const AlphaPool: React.FC = () => {
     <Container>
       <TopSection>
         <div>
-          <Title>알파 풀</Title>
+          <Title>Alpha Pool</Title>
           <Description>
             유전 알고리즘 기반 알파 팩터 생성 시스템
           </Description>
