@@ -197,6 +197,14 @@
     - **NodeConfigModal 컴포넌트**: 5가지 노드 타입별 설정 UI
     - **데이터 소스**: S&P 500 선택, 날짜 범위 설정
     - **백테스트 조건**: 리밸런싱 주기, 거래비용, Quantile 설정
+
+[12](20250115):Alpha Incubator 안정화 및 후보 패널 재구성
+    - 대화 기록 복원 시 시스템 롤 제거 및 중복 사용자 입력 필터링으로 채팅 버블 2중 출력 해결
+    - IME 조합 중 Enter 가로채기 및 로딩 상태 재진입 차단으로 메시지 전송 안정화
+    - LangChain + MCTS 진행 시 상태 배지, 보류 메시지를 “탐색 중”으로 표기해 대기 상황 가시화
+    - 후보 패널 헤더/카드 레이아웃을 고정 높이 + 내부 스크롤 구조로 재배치하고 점수·경로 배지를 추가
+    - 백엔드에서 허용된 함수만 사용하도록 LLM 프로프트 강화, AST 기반 필터로 미지원 식별자 감지·차단
+    - MCTS 트레이스에 필터링 사유를 기록하고 프런트엔드 경고/로그로 노출해 디버깅 편의성 향상
     - **GA 엔진**: 개체수, 세대, 최종 생존 수 파라미터 입력
     - **진화 과정**: 진행률 Progress Bar, 실시간 상태 표시
     - **최종 결과**: 생성된 알파 요약 정보, 상위 3개 알파 미리보기
@@ -1116,3 +1124,7 @@ allowed_fields = ['name', 'email', 'profile_emoji']
     - GA 결과 백테스트가 실데이터 성과를 반환하도록 공용 `calculate_factor_performance` 로직을 도입하고, Incubator 세션 보관/경로 추적 기능을 추가했습니다. (`backend/app.py`)
     - AlphaIncubator 페이지를 챗 패널 + 후보 알파 저장 패널 구조로 재작성하여 생성된 알파를 즉시 저장하고 MCTS 탐색 로그를 조회할 수 있게 했습니다. (`frontend/src/pages/AlphaIncubator.tsx`, `frontend/src/components/AlphaFactory/AlphaCandidatePanel.tsx`, `frontend/src/services/api.ts`, `frontend/src/types/index.ts`)
     - 대시보드 공용 알파 영역을 요약 카드만 남기고, 하단 알파 목록은 검색·페이지네이션(10개 단위) 박스로 개편했습니다. 개인/공용 알파를 통합 정렬 후 검색할 수 있습니다. (`frontend/src/pages/Dashboard.tsx`)
+
+[29](20251019):Ollama 호출 안정화 및 AlphaIncubator 스크롤 개선
+    - `call_local_llm`에 `num_ctx`, `num_predict`, `top_p`를 지정하고 MCTS 탐색 횟수를 2회로 축소해 Ollama 응답 타임아웃을 줄였습니다. (`backend/app.py`)
+    - AlphaIncubator 채팅 패널의 자동 스크롤을 제거해 메시지 입력 시 화면이 임의로 내려가지 않도록 조정했습니다. (`frontend/src/pages/AlphaIncubator.tsx`)

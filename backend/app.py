@@ -19,6 +19,7 @@ import hashlib
 import secrets
 import random
 import textwrap
+import ast
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 import uuid
@@ -51,15 +52,79 @@ from alphas import (
     compile_expression,
     AlphaDataset,
 )
+from alphas.transpiler import ALPHA_GLOBALS
 
-try:
+try:  # pragma: no cover - runtime dependency
     import ollama  # type: ignore
     OLLAMA_AVAILABLE = True
 except Exception:  # pragma: no cover - optional dependency
-    ollama = None
+    ollama = None  # type: ignore
     OLLAMA_AVAILABLE = False
+    logging.getLogger(__name__).warning(
+        "Ollama 라이브러리를 불러오지 못했습니다. 휴리스틱 응답으로 폴백합니다."
+    )
 
 OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'korean-qwen:latest')
+
+ALPHA_ALLOWED_IDENTIFIERS = set(ALPHA_GLOBALS.keys()) | {
+    'open',
+    'high',
+    'low',
+    'close',
+    'volume',
+    'amount',
+    'returns',
+    'vwap',
+    'data',
+    'meta',
+}
+
+# 흔히 안내할 함수 목록 (문서화용)
+DOCUMENTED_ALPHA_FUNCTIONS = [
+    'adv',
+    'correlation',
+    'covariance',
+    'decay_linear',
+    'delta',
+    'delay',
+    'floor_window',
+    'product',
+    'rank',
+    'safe_clean',
+    'scale',
+    'sma',
+    'stddev',
+    'ts_argmax',
+    'ts_argmin',
+    'ts_max',
+    'ts_min',
+    'ts_rank',
+    'ts_sum',
+    'sign',
+    'log',
+    'exp',
+    'sqrt',
+]
+
+ALPHA_ALLOWED_INPUTS = ['open', 'high', 'low', 'close', 'volume', 'amount', 'returns', 'vwap']
+
+
+def find_unsupported_identifiers(expression: str) -> List[str]:
+    """표현식에 포함된 허용되지 않은 식별자를 찾아 목록으로 반환합니다."""
+    try:
+        tree = ast.parse(expression, mode='eval')
+    except SyntaxError:
+        return []
+
+    invalid: List[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            identifier = node.id
+            if identifier in {'True', 'False', 'None'}:
+                continue
+            if identifier not in ALPHA_ALLOWED_IDENTIFIERS:
+                invalid.append(identifier)
+    return sorted(set(invalid))
 
 def load_real_data_for_ga():
     """GA를 위한 실제 데이터 로드"""
@@ -388,7 +453,7 @@ def _clean_prompt(text: str) -> str:
     return re.sub(r'\s+', ' ', text).strip()
 
 
-def call_local_llm(messages: List[Dict[str, str]], *, temperature: float = 0.2) -> str:
+def call_local_llm(messages: List[Dict[str, str]], *, temperature: float = 0.4) -> Tuple[str, str]:
     """
     korean-qwen:latest 모델을 우선 사용하여 LLM 응답을 생성합니다.
     Ollama가 설치되어 있지 않은 경우 규칙 기반 메시지를 반환합니다.
@@ -407,16 +472,19 @@ def call_local_llm(messages: List[Dict[str, str]], *, temperature: float = 0.2) 
                 model=OLLAMA_MODEL,
                 messages=cleaned_messages,
                 options={
-                    'temperature': temperature,
-                },
-            )
-            return response.get('message', {}).get('content', '').strip()
+                'temperature': temperature,
+                'num_predict': 256,
+                'num_ctx': 8192,
+                'top_p': 0.9,
+            },
+        )
+            return response.get('message', {}).get('content', '').strip(), 'ollama'
         except Exception as exc:  # pragma: no cover - runtime dependency
             logger.warning("Ollama 호출 실패, 규칙 기반 응답으로 대체합니다: %s", exc)
 
     # 규칙 기반 폴백
     last_user_message = cleaned_messages[-1]['content'] if cleaned_messages else ''
-    return generate_rule_based_response(last_user_message)
+    return generate_rule_based_response(last_user_message), 'heuristic'
 
 
 def generate_rule_based_response(user_message: str) -> str:
@@ -504,25 +572,36 @@ def parse_llm_alpha_payload(raw_text: str) -> Tuple[str, str]:
     return expression_candidate, rationale
 
 
-def run_mcts_search(goal: str, *, simulations: int = 4) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+def run_mcts_search(goal: str, *, simulations: int = 6) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
     간단한 MCTS 모사: LLM을 활용해 후보 알파를 탐색하고 휴리스틱 점수를 부여합니다.
+    simulations 값을 조정해 탐색 깊이를 제어할 수 있습니다.
     """
     candidates: List[Dict[str, Any]] = []
     trace: List[Dict[str, Any]] = []
 
+    supported_functions_text = ", ".join(DOCUMENTED_ALPHA_FUNCTIONS)
+    supported_inputs_text = ", ".join(ALPHA_ALLOWED_INPUTS)
+
     system_prompt = textwrap.dedent(
-        """
+        f"""
         당신은 퀀트 리서치 파트너입니다. 사용자의 요구에 맞춘 알파 팩터 수식을 제안해야 합니다.
+        반드시 아래 제약을 지키십시오.
+        - 표현식은 지원 함수만 사용합니다: {supported_functions_text}.
+          (필요 시 numpy는 `np`, pandas는 `pd` 네임스페이스로 접근합니다.)
+        - 입력 시계열 별칭은 {supported_inputs_text} 만 사용할 수 있습니다.
+        - 이외 식별자(예: volume_adj_mavg, ts_avg, ema 등)는 사용하지 않습니다.
         응답은 JSON 형식으로 작성하세요. 예시는 다음과 같습니다.
-        {
+        {{
           "name": "...",
           "expression": "...",
           "rationale": "..."
-        }
+        }}
         수식은 WorldQuant 스타일 함수(ts_rank, ts_sum 등)를 적극 활용하십시오.
         """
     ).strip()
+
+    last_provider = 'unknown'
 
     for iteration in range(1, simulations + 1):
         prompt = textwrap.dedent(
@@ -539,10 +618,44 @@ def run_mcts_search(goal: str, *, simulations: int = 4) -> Tuple[List[Dict[str, 
             {'role': 'user', 'content': prompt},
         ]
 
-        llm_output = call_local_llm(llm_messages, temperature=0.3)
+        llm_output, provider = call_local_llm(llm_messages, temperature=0.3)
+        last_provider = provider
         expression, rationale = parse_llm_alpha_payload(llm_output)
 
         if not expression:
+            if provider == 'ollama':
+                # 한 번 더 재시도
+                retry_prompt = prompt + "\n반드시 JSON 형식으로 응답하세요."
+                llm_output, provider = call_local_llm(
+                    [
+                        {'role': 'system', 'content': system_prompt},
+                        {'role': 'user', 'content': retry_prompt},
+                    ],
+                    temperature=0.2,
+                )
+                last_provider = provider
+                expression, rationale = parse_llm_alpha_payload(llm_output)
+            if not expression:
+                trace.append({
+                    'iteration': iteration,
+                    'prompt': prompt,
+                    'raw_response': llm_output,
+                    'scored_expression': '',
+                    'score': 0.0,
+                })
+            continue
+
+        unsupported = find_unsupported_identifiers(expression)
+        if unsupported:
+            reason = f"지원되지 않는 함수/식별자 사용: {', '.join(unsupported)}"
+            trace.append({
+                'iteration': iteration,
+                'prompt': prompt,
+                'raw_response': llm_output,
+                'scored_expression': '',
+                'score': 0.0,
+                'reason': reason,
+            })
             continue
 
         score = score_alpha_expression(expression, rationale, goal)
@@ -578,7 +691,7 @@ def run_mcts_search(goal: str, *, simulations: int = 4) -> Tuple[List[Dict[str, 
         candidate['id'] = f'candidate_{index}'
         candidate['name'] = candidate['name'] or f'Alpha Candidate {index}'
 
-    return candidates, trace
+    return candidates, trace, last_provider
 
 
 def detect_intent(message: str, explicit_intent: Optional[str] = None) -> str:
@@ -942,21 +1055,21 @@ def initialize_systems():
         
         # Langchain Agent - 더 견고한 import
         try:
-            from simple_agent import SimpleQuantAgent
-        except ImportError:
-            try:
-                sys.path.append(os.path.join(PROJECT_ROOT, 'Langchain'))
-                from simple_agent import SimpleQuantAgent
-            except ImportError:
-                # 에이전트를 간단한 더미로 대체
-                class DummyAgent:
-                    def process_message(self, message):
-                        return f"죄송합니다. AI 에이전트 시스템이 현재 사용할 수 없습니다. 메시지: {message}"
-                langchain_agent = DummyAgent()
-                logger.warning("⚠️ Langchain 에이전트를 더미로 초기화 (실제 모듈 로드 실패)")
-        else:
-            langchain_agent = SimpleQuantAgent()
-            logger.info("✅ Langchain 에이전트 초기화 완료")
+            # Langchain 폴더 경로를 sys.path에 추가
+            langchain_path = os.path.join(PROJECT_ROOT, 'Langchain')
+            if langchain_path not in sys.path:
+                sys.path.insert(0, langchain_path)
+
+            # simple_agent.py에서 QuickQuantAssistant 클래스를 import
+            from simple_agent import QuickQuantAssistant
+            langchain_agent = QuickQuantAssistant(use_llama=True)
+            logger.info("✅ QuickQuantLangchain 에이전트 초기화 완료")
+        except Exception as e:
+            class DummyAgent:
+                def process_message(self, message):
+                    return f"죄송합니다. AI 에이전트 시스템이 현재 사용할 수 없습니다. 메시지: {message}"
+            langchain_agent = DummyAgent()
+            logger.warning(f"⚠️ Langchain 에이전트를 더미로 초기화 (실제 모듈 로드 실패: {e})")
         
         # Database Manager - 더 견고한 import
         try:
@@ -1949,18 +2062,29 @@ def incubator_chat():
             'candidates': [],
             'last_trace': [],
             'updated_at': datetime.now().isoformat(),
+            'last_provider': 'ollama' if OLLAMA_AVAILABLE else 'heuristic',
         })
 
         history_payload = payload.get('history')
         if history_payload and not session['messages']:
             try:
                 for entry in history_payload:
-                    role = entry.get('role') if isinstance(entry, dict) else 'user'
-                    content = entry.get('content') if isinstance(entry, dict) else str(entry)
+                    if not isinstance(entry, dict):
+                        continue
+                    role = entry.get('role') or 'user'
+                    if role not in {'user', 'assistant'}:
+                        continue
+                    content = (entry.get('content') or '').strip()
+                    if not content:
+                        continue
+                    if role == 'user' and content == message:
+                        # 프론트엔드에서 직전 사용자 입력을 히스토리에 포함시키므로 중복을 방지
+                        continue
+                    timestamp = entry.get('timestamp') or datetime.now().isoformat()
                     session['messages'].append({
                         'role': role,
                         'content': content,
-                        'timestamp': datetime.now().isoformat(),
+                        'timestamp': timestamp,
                     })
             except Exception:
                 logger.warning("초기 히스토리 파싱 실패, 무시합니다.")
@@ -1975,14 +2099,22 @@ def incubator_chat():
         warnings: List[str] = []
         candidates: List[Dict[str, Any]] = session.get('candidates', [])
         trace: List[Dict[str, Any]] = session.get('last_trace', [])
+        llm_provider = 'unknown'
 
         if intent == 'off_topic':
             reply = "이 인큐베이터는 알파 수식과 플랫폼 관련 문의에만 답변합니다. 전략·지표·알파 생성과 관련된 질문을 해주세요."
         elif intent == 'generate':
-            candidates, trace = run_mcts_search(message)
+            candidates, trace, llm_provider = run_mcts_search(message)
+            if llm_provider != 'ollama':
+                warnings.append("로컬 Ollama LLM이 비활성화되어 휴리스틱 응답을 사용했습니다. `ollama serve` 상태를 확인하세요.")
+            unsupported_reasons = sorted(
+                {entry.get('reason') for entry in trace if entry.get('reason')}
+            )
+            for reason in unsupported_reasons:
+                warnings.append(reason)
             if not candidates:
                 warnings.append("MCTS 탐색에서 적합한 알파를 찾지 못해 기본 전략을 제안합니다.")
-                fallback_expression = "rank(ts_rank(close - ts_delay(close, 5), 10) * volume)"
+                fallback_expression = "rank(ts_rank(close - delay(close, 5), 10) * volume)"
                 candidates = [{
                     'id': 'candidate_fallback',
                     'name': 'Fallback Alpha',
@@ -2004,6 +2136,7 @@ def incubator_chat():
             reply = "\n".join(reply_lines)
             session['candidates'] = candidates
             session['last_trace'] = trace
+            session['last_provider'] = llm_provider
         else:
             system_instruction = textwrap.dedent(
                 """
@@ -2021,7 +2154,10 @@ def incubator_chat():
                     'role': entry['role'],
                     'content': entry['content'],
                 })
-            reply = call_local_llm(llm_messages, temperature=0.1)
+            reply, llm_provider = call_local_llm(llm_messages, temperature=0.1)
+            if llm_provider != 'ollama':
+                warnings.append("로컬 Ollama LLM이 비활성화되어 휴리스틱 응답을 사용했습니다.")
+            session['last_provider'] = llm_provider
 
         session['messages'].append({
             'role': 'assistant',
@@ -2030,15 +2166,21 @@ def incubator_chat():
         })
         session['updated_at'] = datetime.now().isoformat()
 
+        visible_history = [
+            entry for entry in session['messages']
+            if entry.get('role') in {'user', 'assistant'}
+        ]
+
         return jsonify({
             'success': True,
             'session_id': session_id,
             'intent': intent,
             'reply': reply,
+            'llm_provider': llm_provider,
             'candidates': candidates,
             'mcts_trace': trace,
             'warnings': warnings,
-            'history': session['messages'],
+            'history': visible_history,
         })
     except Exception as exc:
         logger.error("인큐베이터 채팅 오류: %s", exc)
@@ -2052,12 +2194,18 @@ def get_incubator_session(session_id: str):
     if not session:
         return jsonify({'success': False, 'error': '세션을 찾을 수 없습니다'}), 404
 
+    visible_history = [
+        entry for entry in session.get('messages', [])
+        if entry.get('role') in {'user', 'assistant'}
+    ]
+
     return jsonify({
         'success': True,
         'session_id': session_id,
-        'history': session.get('messages', []),
+        'history': visible_history,
         'candidates': session.get('candidates', []),
         'mcts_trace': session.get('last_trace', []),
+        'llm_provider': session.get('last_provider', 'ollama' if OLLAMA_AVAILABLE else 'heuristic'),
         'created_at': session.get('created_at'),
         'updated_at': session.get('updated_at'),
     })

@@ -128,6 +128,8 @@ export interface IncubatorMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp?: string;
+  id?: string;
+  pending?: boolean;
 }
 
 export interface AlphaCandidate {
@@ -146,6 +148,7 @@ export interface MctsTraceEntry {
   raw_response: string;
   scored_expression: string;
   score: number;
+  reason?: string;
 }
 
 export interface IncubatorChatResponse {
@@ -158,6 +161,7 @@ export interface IncubatorChatResponse {
   mcts_trace?: MctsTraceEntry[];
   warnings?: string[];
   history: IncubatorMessage[];
+  llm_provider?: string;
 }
 
 // 🧬 GA 파라미터

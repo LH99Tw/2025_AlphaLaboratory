@@ -565,3 +565,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# 호환성을 위해 기존 이름 유지
+SimpleQuantAgent = QuickQuantAssistant

@@ -20,6 +20,7 @@ interface AlphaCandidatePanelProps {
   candidates: AlphaCandidateItem[];
   onChange: (updated: AlphaCandidateItem[]) => void;
   onSave: (selected: AlphaCandidateItem[]) => Promise<void> | void;
+  onSaveSingle?: (candidate: AlphaCandidateItem) => Promise<void> | void;
   isSaving?: boolean;
 }
 
@@ -28,12 +29,15 @@ const PanelContainer = styled(GlassCard)`
   flex-direction: column;
   gap: ${theme.spacing.md};
   height: 100%;
+  min-height: 520px;
+  max-height: 680px;
+  overflow: hidden;
 `;
 
 const PanelHeader = styled.div`
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   padding-bottom: ${theme.spacing.md};
   border-bottom: 1px solid ${theme.colors.border};
 `;
@@ -50,12 +54,33 @@ const Subtitle = styled.span`
   color: ${theme.colors.textSecondary};
 `;
 
+const HeaderMeta = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: ${theme.spacing.xs};
+`;
+
+const CountBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: ${theme.spacing.xs};
+  padding: ${theme.spacing.xs} ${theme.spacing.sm};
+  border-radius: 999px;
+  background: rgba(138, 180, 248, 0.18);
+  border: 1px solid rgba(138, 180, 248, 0.25);
+  color: ${theme.colors.textPrimary};
+  font-size: ${theme.typography.fontSize.caption};
+  font-weight: 600;
+`;
+
 const CandidateList = styled.div`
   flex: 1;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: ${theme.spacing.sm};
+  padding-right: ${theme.spacing.sm};
 
   &::-webkit-scrollbar {
     width: 8px;
@@ -76,12 +101,12 @@ const CandidateList = styled.div`
   }
 `;
 
-const CandidateCard = styled.div<{ $selected: boolean }>`
+const CandidateCard = styled.article<{ $selected: boolean }>`
   border-radius: 16px;
-  padding: ${theme.spacing.md};
-  display: grid;
-  grid-template-columns: 32px 1fr auto;
-  gap: ${theme.spacing.md};
+  padding: ${theme.spacing.lg};
+  display: flex;
+  flex-direction: column;
+  gap: ${theme.spacing.sm};
   background: ${({ $selected }) =>
     $selected ? theme.colors.liquidGoldGradient : theme.colors.liquidGlass};
   border: 1px solid
@@ -95,10 +120,32 @@ const CandidateCard = styled.div<{ $selected: boolean }>`
   }
 `;
 
-const CandidateMain = styled.div`
+const CandidateHeader = styled.header`
+  display: flex;
+  align-items: flex-start;
+  gap: ${theme.spacing.md};
+`;
+
+const CandidateInfo = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${theme.spacing.xs};
+  flex: 1;
+`;
+
+const CandidateSubMeta = styled.div`
+  display: flex;
+  align-items: center;
+  gap: ${theme.spacing.sm};
+  color: ${theme.colors.textSecondary};
+  font-size: ${theme.typography.fontSize.caption};
+`;
+
+const CandidateBody = styled.div`
   display: flex;
   flex-direction: column;
   gap: ${theme.spacing.sm};
+  margin-left: 40px;
 `;
 
 const CandidateName = styled.div`
@@ -110,7 +157,7 @@ const CandidateName = styled.div`
   gap: ${theme.spacing.sm};
 `;
 
-const CandidateExpression = styled.div`
+const CandidateExpression = styled.pre`
   font-family: ${theme.typography.fontFamily.display};
   font-size: ${theme.typography.fontSize.caption};
   line-height: 1.4;
@@ -120,33 +167,67 @@ const CandidateExpression = styled.div`
   padding: ${theme.spacing.sm};
   white-space: pre-wrap;
   word-break: break-word;
+  max-height: 110px;
+  overflow-y: auto;
+  margin: 0;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+  }
 `;
 
-const CandidateRationale = styled.div`
+const CandidateRationale = styled.p`
   font-size: ${theme.typography.fontSize.caption};
   color: ${theme.colors.textSecondary};
-  line-height: 1.5;
+  line-height: 1.6;
+  max-height: 140px;
+  overflow-y: auto;
+  margin: 0;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+  }
 `;
 
 const CandidateMeta = styled.div`
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: ${theme.spacing.sm};
-  min-width: 80px;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${theme.spacing.md};
 `;
 
 const ScoreBadge = styled.span`
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 68px;
-  padding: ${theme.spacing.xs} ${theme.spacing.sm};
+  min-width: 72px;
+  padding: ${theme.spacing.xs} ${theme.spacing.md};
   border-radius: 999px;
   font-weight: 600;
   font-size: ${theme.typography.fontSize.caption};
   color: ${theme.colors.backgroundDark};
   background: ${theme.colors.accentPrimary};
+`;
+
+const StageTag = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: ${theme.spacing.xs};
+  padding: ${theme.spacing.xs} ${theme.spacing.sm};
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: ${theme.colors.textSecondary};
+  font-size: ${theme.typography.fontSize.caption};
 `;
 
 const PathLabel = styled.span`
@@ -189,10 +270,19 @@ const SelectAllWrapper = styled.div`
   font-size: ${theme.typography.fontSize.caption};
 `;
 
+const RowActions = styled.div`
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: ${theme.spacing.sm};
+  margin-left: 40px;
+`;
+
 export const AlphaCandidatePanel: React.FC<AlphaCandidatePanelProps> = ({
   candidates,
   onChange,
   onSave,
+  onSaveSingle,
   isSaving = false,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -209,6 +299,27 @@ export const AlphaCandidatePanel: React.FC<AlphaCandidatePanelProps> = ({
     const allSelected = candidates.every((candidate) => candidate.selected);
     const updated = candidates.map((candidate) => ({ ...candidate, selected: !allSelected }));
     onChange(updated);
+  };
+
+  const handleCandidateCardClick = (candidateId: string) => (
+    event: React.MouseEvent<HTMLDivElement>
+  ) => {
+    const target = event.target as HTMLElement;
+    if (target.closest('button') || target.closest('input[type="checkbox"]')) {
+      return;
+    }
+    toggleCandidate(candidateId);
+  };
+
+  const handleQuickSaveClick = (candidate: AlphaCandidateItem) => (
+    event: React.MouseEvent<HTMLButtonElement>
+  ) => {
+    event.stopPropagation();
+    if (onSaveSingle) {
+      void onSaveSingle(candidate);
+    } else {
+      void onSave([candidate]);
+    }
   };
 
   const handleStartEdit = (candidate: AlphaCandidateItem) => {
@@ -251,7 +362,10 @@ export const AlphaCandidatePanel: React.FC<AlphaCandidatePanelProps> = ({
           <Title>생성된 알파 후보</Title>
           <Subtitle>LangChain + MCTS 탐색 결과</Subtitle>
         </div>
-        <Subtitle>{selectedCount}개 선택됨</Subtitle>
+        <HeaderMeta>
+          <CountBadge>{candidates.length}개 후보</CountBadge>
+          <Subtitle>{selectedCount}개 선택됨</Subtitle>
+        </HeaderMeta>
       </PanelHeader>
 
       <CandidateList>
@@ -259,48 +373,78 @@ export const AlphaCandidatePanel: React.FC<AlphaCandidatePanelProps> = ({
           <Subtitle>왼쪽에서 프롬프트를 입력하고 “알파 생성”을 눌러 후보를 만들어보세요.</Subtitle>
         )}
 
-        {candidates.map((candidate) => (
-          <CandidateCard key={candidate.id} $selected={candidate.selected}>
-            <Checkbox checked={candidate.selected} onChange={() => toggleCandidate(candidate.id)} />
+        {candidates.map((candidate) => {
+          const stageDepth =
+            candidate.path && candidate.path.length > 1 ? candidate.path.length - 1 : null;
 
-            <CandidateMain>
-              <CandidateName>
-                {editingId === candidate.id ? (
-                  <>
-                    <Input
-                      size="small"
-                      value={editingName}
-                      onChange={(event) => setEditingName(event.target.value)}
-                      onPressEnter={handleConfirmEdit}
-                    />
-                    <EditButton onClick={handleConfirmEdit}>
-                      <CheckOutlined />
-                    </EditButton>
-                  </>
-                ) : (
-                  <>
-                    {candidate.name}
-                    <EditButton onClick={() => handleStartEdit(candidate)}>
-                      <EditOutlined />
-                    </EditButton>
-                  </>
-                )}
-              </CandidateName>
+          return (
+            <CandidateCard
+              key={candidate.id}
+              $selected={candidate.selected}
+              onClick={handleCandidateCardClick(candidate.id)}
+            >
+              <CandidateHeader>
+                <Checkbox
+                  checked={candidate.selected}
+                  onChange={() => toggleCandidate(candidate.id)}
+                  onClick={(event: React.MouseEvent<HTMLInputElement>) => event.stopPropagation()}
+                />
+                <CandidateInfo>
+                  <CandidateMeta>
+                    <CandidateName>
+                      {editingId === candidate.id ? (
+                        <>
+                          <Input
+                            size="small"
+                            value={editingName}
+                            onChange={(event) => setEditingName(event.target.value)}
+                            onPressEnter={handleConfirmEdit}
+                          />
+                          <EditButton onClick={handleConfirmEdit}>
+                            <CheckOutlined />
+                          </EditButton>
+                        </>
+                      ) : (
+                        <>
+                          {candidate.name}
+                          <EditButton onClick={() => handleStartEdit(candidate)}>
+                            <EditOutlined />
+                          </EditButton>
+                        </>
+                      )}
+                    </CandidateName>
+                    <ScoreBadge>{(candidate.score * 100).toFixed(0)} 점</ScoreBadge>
+                  </CandidateMeta>
+                  {stageDepth !== null && (
+                    <CandidateSubMeta>
+                      <StageTag>경로 {stageDepth} 단계</StageTag>
+                      <Tooltip title={candidate.path?.join(' → ')}>
+                        <PathLabel>탐색 루트 확인</PathLabel>
+                      </Tooltip>
+                    </CandidateSubMeta>
+                  )}
+                </CandidateInfo>
+              </CandidateHeader>
 
-              <CandidateExpression>{candidate.expression}</CandidateExpression>
-              <CandidateRationale>{candidate.rationale}</CandidateRationale>
-            </CandidateMain>
+              <CandidateBody>
+                <CandidateExpression>{candidate.expression}</CandidateExpression>
+                <CandidateRationale>{candidate.rationale}</CandidateRationale>
+              </CandidateBody>
 
-            <CandidateMeta>
-              <ScoreBadge>{(candidate.score * 100).toFixed(0)} 점</ScoreBadge>
-              {candidate.path && candidate.path.length > 0 && (
-                <Tooltip title={candidate.path.join(' → ')}>
-                  <PathLabel>경로 {candidate.path.length - 1} 단계</PathLabel>
-                </Tooltip>
-              )}
-            </CandidateMeta>
-          </CandidateCard>
-        ))}
+              <RowActions>
+                <GlassButton
+                  variant="secondary"
+                  icon={<SaveOutlined />}
+                  onClick={handleQuickSaveClick(candidate)}
+                  loading={isSaving}
+                  disabled={isSaving}
+                >
+                  바로 저장
+                </GlassButton>
+              </RowActions>
+            </CandidateCard>
+          );
+        })}
       </CandidateList>
 
       <Footer>

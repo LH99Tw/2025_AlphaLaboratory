@@ -52,10 +52,12 @@ const Content = styled.div`
 `;
 
 const ChatColumn = styled.div`
-  flex: 1;
+  flex: 1 1 0;
   display: flex;
   flex-direction: column;
   gap: ${theme.spacing.lg};
+  min-height: 560px;
+  max-height: 640px;
 `;
 
 const ChatCard = styled(GlassCard)`
@@ -63,6 +65,8 @@ const ChatCard = styled(GlassCard)`
   flex-direction: column;
   height: 100%;
   min-height: 520px;
+  max-height: 640px;
+  overflow: hidden;
 `;
 
 const ChatHeader = styled.div`
@@ -82,15 +86,43 @@ const SessionInfo = styled.div`
   font-size: ${theme.typography.fontSize.caption};
 `;
 
-const SessionTag = styled.span`
+const SessionTag = styled.span<{ $variant?: 'default' | 'warning' | 'pending' }>`
   display: inline-flex;
   align-items: center;
   gap: ${theme.spacing.xs};
   padding: ${theme.spacing.xs} ${theme.spacing.sm};
   border-radius: 999px;
-  background: ${theme.colors.liquidGlass};
-  border: 1px solid ${theme.colors.liquidGlassBorder};
-  color: ${theme.colors.textSecondary};
+  background: ${({ $variant }) => {
+    switch ($variant) {
+      case 'warning':
+        return 'rgba(239, 68, 68, 0.15)';
+      case 'pending':
+        return 'rgba(138, 180, 248, 0.12)';
+      default:
+        return theme.colors.liquidGlass;
+    }
+  }};
+  border: 1px solid
+    ${({ $variant }) => {
+      switch ($variant) {
+        case 'warning':
+          return 'rgba(239, 68, 68, 0.35)';
+        case 'pending':
+          return 'rgba(138, 180, 248, 0.4)';
+        default:
+          return theme.colors.liquidGlassBorder;
+      }
+    }};
+  color: ${({ $variant }) => {
+    switch ($variant) {
+      case 'warning':
+        return '#fca5a5';
+      case 'pending':
+        return '#8ab4f8';
+      default:
+        return theme.colors.textSecondary;
+    }
+  }};
   font-weight: 600;
   font-size: ${theme.typography.fontSize.caption};
 `;
@@ -133,14 +165,14 @@ const MessageRow = styled.div<{ $role: string }>`
   justify-content: ${({ $role }) => ($role === 'assistant' ? 'flex-start' : 'flex-end')};
 `;
 
-const MessageBubble = styled.div<{ $role: string }>`
+const MessageBubble = styled.div<{ $role: string; $pending?: boolean }>`
   max-width: 75%;
   padding: ${theme.spacing.md};
   border-radius: 18px;
   line-height: 1.5;
   font-size: ${theme.typography.fontSize.body};
   color: ${({ $role }) =>
-    $role === 'assistant' ? theme.colors.textPrimary : theme.colors.backgroundDark};
+    $role === 'assistant' ? theme.colors.textPrimary : theme.colors.textPrimary};
   background: ${({ $role }) =>
     $role === 'assistant' ? theme.colors.liquidGlass : theme.colors.liquidGoldGradient};
   border: 1px solid
@@ -148,6 +180,7 @@ const MessageBubble = styled.div<{ $role: string }>`
       $role === 'assistant' ? theme.colors.liquidGlassBorder : theme.colors.liquidGoldBorder};
   white-space: pre-wrap;
   word-break: break-word;
+  opacity: ${({ $pending }) => ($pending ? 0.75 : 1)};
 `;
 
 const MessageMeta = styled.span`
@@ -179,7 +212,7 @@ const ButtonGroup = styled.div`
 `;
 
 const CandidateColumn = styled.div`
-  width: 40%;
+  flex: 0 0 40%;
   min-width: 360px;
   display: flex;
   flex-direction: column;
@@ -243,19 +276,25 @@ const modeOptions: { value: Mode; label: string }[] = [
   { value: 'chat', label: '플랫폼 Q&A' },
 ];
 
-const DEFAULT_WELCOME_MESSAGE: IncubatorMessage = {
+const createMessageId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const buildWelcomeMessage = (): IncubatorMessage => ({
+  id: createMessageId(),
   role: 'assistant',
   content:
     '안녕하세요! AlphaIncubator입니다. 변동성·거래량·모멘텀 등 원하는 조건을 알려주시면 LangChain + MCTS로 맞춤형 알파 후보를 찾아드립니다.',
-};
+  timestamp: new Date().toISOString(),
+});
 
 const SESSION_STORAGE_KEY = 'alphaIncubatorSessionId';
 
 const normalizeMessages = (history: IncubatorMessage[] | undefined): IncubatorMessage[] => {
-  if (!history || history.length === 0) {
-    return [DEFAULT_WELCOME_MESSAGE];
-  }
-  return history;
+  const source = history && history.length > 0 ? history : [buildWelcomeMessage()];
+  return source.map((message) => ({
+    ...message,
+    id: message.id ?? createMessageId(),
+    pending: false,
+  }));
 };
 
 const mapCandidates = (
@@ -282,24 +321,22 @@ const mapCandidates = (
 export const AlphaIncubator: React.FC = () => {
   const [mode, setMode] = useState<Mode>('generate');
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<IncubatorMessage[]>([DEFAULT_WELCOME_MESSAGE]);
+  const [messages, setMessages] = useState<IncubatorMessage[]>([buildWelcomeMessage()]);
   const [inputValue, setInputValue] = useState('');
   const [candidates, setCandidates] = useState<AlphaCandidateItem[]>([]);
   const [trace, setTrace] = useState<MctsTraceEntry[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [llmProvider, setLlmProvider] = useState<string>('unknown');
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const loadingRef = useRef(false);
 
   const scrollToBottom = useCallback(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, []);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
 
   useEffect(() => {
     const storedSession = localStorage.getItem(SESSION_STORAGE_KEY);
@@ -326,6 +363,7 @@ export const AlphaIncubator: React.FC = () => {
           })),
         );
         setTrace(response.mcts_trace || []);
+        setLlmProvider(response.llm_provider || 'unknown');
       })
       .catch((error: any) => {
         console.warn('세션 복원 실패:', error);
@@ -343,7 +381,7 @@ export const AlphaIncubator: React.FC = () => {
 
   const handleResetSession = () => {
     setSessionId(null);
-    setMessages([DEFAULT_WELCOME_MESSAGE]);
+    setMessages([buildWelcomeMessage()]);
     setCandidates([]);
     setTrace([]);
     setWarnings([]);
@@ -377,12 +415,22 @@ export const AlphaIncubator: React.FC = () => {
     }
   };
 
-  const prepareHistoryForRequest = useCallback(() => {
-    return messages.map((message) => ({
-      role: message.role,
-      content: message.content,
-    }));
-  }, [messages]);
+  const handleSaveSingleCandidate = async (candidate: AlphaCandidateItem) => {
+    await handleSaveCandidates([candidate]);
+  };
+
+  const buildHistoryPayload = useCallback(
+    (extra?: { role: 'user' | 'assistant' | 'system'; content: string }) => {
+      const base = messages
+        .filter((message) => !message.pending)
+        .map((message) => ({ role: message.role, content: message.content }));
+      if (extra) {
+        base.push(extra);
+      }
+      return base;
+    },
+    [messages],
+  );
 
   const handleSendMessage = async () => {
     const trimmed = inputValue.trim();
@@ -390,22 +438,41 @@ export const AlphaIncubator: React.FC = () => {
       message.warning('메시지를 입력해 주세요.');
       return;
     }
+    if (loadingRef.current) {
+      message.warning('이전 요청이 처리 중입니다. 잠시만 기다려 주세요.');
+      return;
+    }
 
-    const optimisticMessage: IncubatorMessage = {
+    const userMessage: IncubatorMessage = {
+      id: createMessageId(),
       role: 'user',
       content: trimmed,
       timestamp: new Date().toISOString(),
     };
-    setMessages((prev) => [...prev, optimisticMessage]);
+
+    const pendingContent =
+      mode === 'generate' ? 'LangChain + MCTS 탐색 중...' : '응답 생성 중...';
+    const pendingMessage: IncubatorMessage = {
+      id: createMessageId(),
+      role: 'assistant',
+      content: pendingContent,
+      timestamp: new Date().toISOString(),
+      pending: true,
+    };
+
+    const historyPayload = buildHistoryPayload({ role: 'user', content: trimmed });
+
     setInputValue('');
+    loadingRef.current = true;
     setLoading(true);
+    setMessages((prev) => [...prev, userMessage, pendingMessage]);
 
     try {
       const response = await postIncubatorChat({
         message: trimmed,
         intent: mode,
         session_id: sessionId || undefined,
-        history: prepareHistoryForRequest(),
+        history: historyPayload,
       });
 
       if (!response.success) {
@@ -418,13 +485,17 @@ export const AlphaIncubator: React.FC = () => {
       setCandidates((prev) => mapCandidates(response, prev));
       setTrace(response.mcts_trace || []);
       setWarnings(response.warnings || []);
+      setLlmProvider(response.llm_provider || 'unknown');
     } catch (error: any) {
       console.error('인큐베이터 오류:', error);
       setWarnings([]);
       message.error(error?.message || '인큐베이터와의 통신에 실패했습니다.');
-      setMessages((prev) => prev.slice(0, prev.length - 1));
+      setMessages((prev) =>
+        prev.filter((message) => message.id !== userMessage.id && message.id !== pendingMessage.id),
+      );
     } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
   };
 
@@ -444,6 +515,11 @@ export const AlphaIncubator: React.FC = () => {
         <div>
           <strong>Candidate:</strong> {entry.scored_expression}
         </div>
+        {entry.reason && (
+          <div>
+            <strong>메모:</strong> {entry.reason}
+          </div>
+        )}
       </TraceItem>
     ));
   }, [trace]);
@@ -470,6 +546,19 @@ export const AlphaIncubator: React.FC = () => {
                 <SessionTag>
                   <RobotOutlined /> korean-qwen · LangChain · MCTS
                 </SessionTag>
+                <SessionTag
+                  $variant={
+                    loading ? 'pending' : llmProvider === 'ollama' ? 'default' : 'warning'
+                  }
+                >
+                  {loading
+                    ? mode === 'generate'
+                      ? 'LangChain + MCTS 탐색 중...'
+                      : 'LLM 응답 중...'
+                    : llmProvider === 'ollama'
+                      ? 'LLM: Ollama (korean-qwen)'
+                      : 'LLM: 휴리스틱 폴백'}
+                </SessionTag>
                 <span>
                   현재 모드: <strong>{mode === 'generate' ? '알파 생성' : '플랫폼 Q&A'}</strong>
                 </span>
@@ -484,8 +573,11 @@ export const AlphaIncubator: React.FC = () => {
 
             <Messages>
               {messages.map((messageItem, index) => (
-                <MessageRow key={`${messageItem.role}-${index}`} $role={messageItem.role}>
-                  <MessageBubble $role={messageItem.role}>
+                <MessageRow
+                  key={`${messageItem.id || messageItem.role}-${index}`}
+                  $role={messageItem.role}
+                >
+                  <MessageBubble $role={messageItem.role} $pending={messageItem.pending}>
                     {messageItem.content}
                     {messageItem.timestamp && (
                       <MessageMeta>
@@ -512,10 +604,11 @@ export const AlphaIncubator: React.FC = () => {
                 }
                 autoSize={{ minRows: 3, maxRows: 6 }}
                 onPressEnter={(event) => {
-                  if (!event.shiftKey) {
-                    event.preventDefault();
-                    handleSendMessage();
+                  if (event.shiftKey || event.nativeEvent.isComposing) {
+                    return;
                   }
+                  event.preventDefault();
+                  handleSendMessage();
                 }}
               />
               <Actions>
@@ -558,6 +651,7 @@ export const AlphaIncubator: React.FC = () => {
             candidates={candidates}
             onChange={setCandidates}
             onSave={handleSaveCandidates}
+            onSaveSingle={handleSaveSingleCandidate}
             isSaving={saving}
           />
 
