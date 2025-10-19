@@ -124,6 +124,42 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
+export interface IncubatorMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp?: string;
+}
+
+export interface AlphaCandidate {
+  id: string;
+  name: string;
+  expression: string;
+  rationale: string;
+  score: number;
+  path?: string[];
+  selected: boolean;
+}
+
+export interface MctsTraceEntry {
+  iteration: number;
+  prompt: string;
+  raw_response: string;
+  scored_expression: string;
+  score: number;
+}
+
+export interface IncubatorChatResponse {
+  success: boolean;
+  session_id: string;
+  intent: string;
+  reply: string;
+  error?: string;
+  candidates?: AlphaCandidate[];
+  mcts_trace?: MctsTraceEntry[];
+  warnings?: string[];
+  history: IncubatorMessage[];
+}
+
 // 🧬 GA 파라미터
 export interface GAParams {
   start_date: string;

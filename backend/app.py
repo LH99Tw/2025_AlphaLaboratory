@@ -17,8 +17,12 @@ import json
 import logging
 import hashlib
 import secrets
-from typing import Any, Dict, List, Optional
+import random
+import textwrap
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
+import uuid
+import re
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 import pandas as pd
@@ -47,6 +51,15 @@ from alphas import (
     compile_expression,
     AlphaDataset,
 )
+
+try:
+    import ollama  # type: ignore
+    OLLAMA_AVAILABLE = True
+except Exception:  # pragma: no cover - optional dependency
+    ollama = None
+    OLLAMA_AVAILABLE = False
+
+OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'korean-qwen:latest')
 
 def load_real_data_for_ga():
     """GA를 위한 실제 데이터 로드"""
@@ -370,6 +383,217 @@ def calculate_factor_performance(
     }
 
 
+def _clean_prompt(text: str) -> str:
+    """Collapse whitespace in prompts for consistent LLM calls."""
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def call_local_llm(messages: List[Dict[str, str]], *, temperature: float = 0.2) -> str:
+    """
+    korean-qwen:latest 모델을 우선 사용하여 LLM 응답을 생성합니다.
+    Ollama가 설치되어 있지 않은 경우 규칙 기반 메시지를 반환합니다.
+    """
+    cleaned_messages = [
+        {
+            'role': msg.get('role', 'user'),
+            'content': _clean_prompt(msg.get('content', '')) if isinstance(msg, dict) else str(msg)
+        }
+        for msg in messages
+    ]
+
+    if OLLAMA_AVAILABLE:
+        try:
+            response = ollama.chat(  # type: ignore[attr-defined]
+                model=OLLAMA_MODEL,
+                messages=cleaned_messages,
+                options={
+                    'temperature': temperature,
+                },
+            )
+            return response.get('message', {}).get('content', '').strip()
+        except Exception as exc:  # pragma: no cover - runtime dependency
+            logger.warning("Ollama 호출 실패, 규칙 기반 응답으로 대체합니다: %s", exc)
+
+    # 규칙 기반 폴백
+    last_user_message = cleaned_messages[-1]['content'] if cleaned_messages else ''
+    return generate_rule_based_response(last_user_message)
+
+
+def generate_rule_based_response(user_message: str) -> str:
+    """Ollama가 없을 때 사용할 간단한 답변 생성기."""
+    templates = [
+        "요청하신 내용을 정리했습니다:\n1. 핵심 목표를 명확히 정의합니다.\n2. 필요한 데이터 소스를 점검합니다.\n3. 리스크 관리 지표를 함께 살펴봅니다.",
+        "해당 요구사항을 기준으로 아이디어를 구성해 보았습니다. 변동성, 거래량, 모멘텀 요소를 균형있게 결합하는 알파를 추천드립니다.",
+        "이 플랫폼은 알파 생성과 백테스트에 초점을 맞추고 있습니다. 관련 지표나 전략 질문을 주시면 더 구체적으로 도와드릴 수 있습니다.",
+    ]
+
+    if '프로그램' in user_message or '플랫폼' in user_message:
+        return "이 프로그램은 LangChain과 GA를 활용해 알파를 탐색합니다. 구체적인 알파 조건이나 전략을 말씀해주시면 더 정밀한 제안을 드릴 수 있습니다."
+
+    if any(keyword in user_message.lower() for keyword in ['vol', '변동성', 'volume', '거래량']):
+        return (
+            "변동성과 거래량을 함께 고려한 전략을 준비해 보았습니다. "
+            "예: rank(stddev(log(return), 20) * volume) 형태로 변동성에 거래량 가중치를 부여할 수 있습니다."
+        )
+
+    if any(keyword in user_message.lower() for keyword in ['hello', 'hi', '안녕']):
+        return "안녕하세요! 알파 생성이나 백테스트와 관련된 질문이 있다면 말씀해 주세요."
+
+    return random.choice(templates)
+
+
+def score_alpha_expression(expression: str, rationale: str, goal: str) -> float:
+    """간단한 휴리스틱으로 알파 표현식의 품질을 점수화합니다."""
+    expression_lower = expression.lower()
+    rationale_lower = rationale.lower()
+    goal_lower = goal.lower()
+
+    score = 0.4  # 기본 점수
+
+    keyword_weights = [
+        (['vol', 'stddev', 'variance', '변동'], 0.25),
+        (['volume', '거래량'], 0.2),
+        (['rank', 'ts_rank'], 0.1),
+        (['correlation', 'corr'], 0.1),
+        (['momentum', '모멘텀'], 0.08),
+        (['reversal', '반전'], 0.05),
+    ]
+
+    for keywords, weight in keyword_weights:
+        if any(keyword in expression_lower for keyword in keywords):
+            score += weight
+        if any(keyword in rationale_lower for keyword in keywords):
+            score += weight / 2
+        if any(keyword in goal_lower for keyword in keywords):
+            score += weight / 2
+
+    length_penalty = min(len(expression) / 200, 0.3)
+    score += 0.2 - length_penalty
+
+    score = max(0.05, min(score, 1.0))
+    return round(score, 4)
+
+
+def parse_llm_alpha_payload(raw_text: str) -> Tuple[str, str]:
+    """
+    LLM 응답에서 알파 수식과 설명을 추출합니다.
+    JSON 형식이면 파싱하고, 아니면 간단한 규칙으로 구분합니다.
+    """
+    raw_text = raw_text.strip()
+
+    try:
+        payload = json.loads(raw_text)
+        if isinstance(payload, dict):
+            expression = payload.get('expression') or payload.get('alpha') or ''
+            rationale = payload.get('rationale') or payload.get('explanation') or ''
+            if expression:
+                return expression.strip(), rationale.strip()
+    except json.JSONDecodeError:
+        pass
+
+    # 코드 블록 추출
+    code_match = re.search(r"```(?:python|alpha)?\s*(.*?)```", raw_text, re.DOTALL)
+    if code_match:
+        expression_candidate = code_match.group(1).strip()
+    else:
+        # 첫 줄이 수식으로 보이면 사용
+        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        expression_candidate = lines[0] if lines else raw_text
+
+    rationale = raw_text.replace(expression_candidate, '').strip()
+    return expression_candidate, rationale
+
+
+def run_mcts_search(goal: str, *, simulations: int = 4) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    간단한 MCTS 모사: LLM을 활용해 후보 알파를 탐색하고 휴리스틱 점수를 부여합니다.
+    """
+    candidates: List[Dict[str, Any]] = []
+    trace: List[Dict[str, Any]] = []
+
+    system_prompt = textwrap.dedent(
+        """
+        당신은 퀀트 리서치 파트너입니다. 사용자의 요구에 맞춘 알파 팩터 수식을 제안해야 합니다.
+        응답은 JSON 형식으로 작성하세요. 예시는 다음과 같습니다.
+        {
+          "name": "...",
+          "expression": "...",
+          "rationale": "..."
+        }
+        수식은 WorldQuant 스타일 함수(ts_rank, ts_sum 등)를 적극 활용하십시오.
+        """
+    ).strip()
+
+    for iteration in range(1, simulations + 1):
+        prompt = textwrap.dedent(
+            f"""
+            사용자 목표: {goal}
+            요구사항에 맞는 새로운 알파 수식을 JSON 형식으로 제안해 주세요.
+            수식은 간결하게 표현하고, rationale에는 해당 수식의 직관을 설명해 주세요.
+            iteration: {iteration}
+            """
+        )
+
+        llm_messages = [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': prompt},
+        ]
+
+        llm_output = call_local_llm(llm_messages, temperature=0.3)
+        expression, rationale = parse_llm_alpha_payload(llm_output)
+
+        if not expression:
+            continue
+
+        score = score_alpha_expression(expression, rationale, goal)
+        candidate = {
+            'name': f'Alpha Candidate {iteration}',
+            'expression': expression,
+            'rationale': rationale or 'LLM이 제시한 근거가 없습니다.',
+            'score': score,
+            'path': [
+                'root',
+                'explore_volatility' if 'vol' in expression.lower() else 'explore_momentum',
+                f'candidate_{iteration}'
+            ],
+        }
+
+        trace.append({
+            'iteration': iteration,
+            'prompt': prompt,
+            'raw_response': llm_output,
+            'scored_expression': expression,
+            'score': score,
+        })
+
+        # 중복 수식은 스킵
+        if any(existing['expression'] == expression for existing in candidates):
+            continue
+
+        candidates.append(candidate)
+
+    candidates.sort(key=lambda item: item['score'], reverse=True)
+
+    for index, candidate in enumerate(candidates, start=1):
+        candidate['id'] = f'candidate_{index}'
+        candidate['name'] = candidate['name'] or f'Alpha Candidate {index}'
+
+    return candidates, trace
+
+
+def detect_intent(message: str, explicit_intent: Optional[str] = None) -> str:
+    """사용자 입력을 기반으로 의도를 감지합니다."""
+    if explicit_intent:
+        return explicit_intent
+
+    lowered = message.lower()
+    if any(keyword in lowered for keyword in ['알파', '수식', 'factor', '전략', 'generate']):
+        return 'generate'
+    if any(keyword in lowered for keyword in ['프로그램', '플랫폼', '백테스트', 'ga', 'ga']):
+        return 'chat'
+    return 'off_topic'
+
+
 def compute_factor_series_from_registry(factor_name: str,
                                         registry: AlphaRegistry,
                                         price_data: pd.DataFrame) -> pd.DataFrame:
@@ -518,8 +742,9 @@ csv_manager = None
 
 # 작업 상태 추적을 위한 딕셔너리
 task_status = {}
-backtest_status = {}
-ga_status = {}
+backtest_status: Dict[str, Dict[str, Any]] = {}
+ga_status: Dict[str, Dict[str, Any]] = {}
+incubator_sessions: Dict[str, Dict[str, Any]] = {}
 
 
 def get_alpha_registry(username: Optional[str] = None) -> AlphaRegistry:
@@ -1705,6 +1930,137 @@ def chat_with_agent():
     except Exception as e:
         logger.error(f"채팅 오류: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/incubator/chat', methods=['POST'])
+def incubator_chat():
+    """LangChain + MCTS 알파 인큐베이터 대화"""
+    try:
+        payload = request.get_json() or {}
+        message = (payload.get('message') or '').strip()
+        if not message:
+            return jsonify({'success': False, 'error': '메시지를 입력해 주세요'}), 400
+
+        session_id = payload.get('session_id') or str(uuid.uuid4())
+        session = incubator_sessions.setdefault(session_id, {
+            'session_id': session_id,
+            'created_at': datetime.now().isoformat(),
+            'messages': [],
+            'candidates': [],
+            'last_trace': [],
+            'updated_at': datetime.now().isoformat(),
+        })
+
+        history_payload = payload.get('history')
+        if history_payload and not session['messages']:
+            try:
+                for entry in history_payload:
+                    role = entry.get('role') if isinstance(entry, dict) else 'user'
+                    content = entry.get('content') if isinstance(entry, dict) else str(entry)
+                    session['messages'].append({
+                        'role': role,
+                        'content': content,
+                        'timestamp': datetime.now().isoformat(),
+                    })
+            except Exception:
+                logger.warning("초기 히스토리 파싱 실패, 무시합니다.")
+
+        session['messages'].append({
+            'role': 'user',
+            'content': message,
+            'timestamp': datetime.now().isoformat(),
+        })
+
+        intent = detect_intent(message, payload.get('intent'))
+        warnings: List[str] = []
+        candidates: List[Dict[str, Any]] = session.get('candidates', [])
+        trace: List[Dict[str, Any]] = session.get('last_trace', [])
+
+        if intent == 'off_topic':
+            reply = "이 인큐베이터는 알파 수식과 플랫폼 관련 문의에만 답변합니다. 전략·지표·알파 생성과 관련된 질문을 해주세요."
+        elif intent == 'generate':
+            candidates, trace = run_mcts_search(message)
+            if not candidates:
+                warnings.append("MCTS 탐색에서 적합한 알파를 찾지 못해 기본 전략을 제안합니다.")
+                fallback_expression = "rank(ts_rank(close - ts_delay(close, 5), 10) * volume)"
+                candidates = [{
+                    'id': 'candidate_fallback',
+                    'name': 'Fallback Alpha',
+                    'expression': fallback_expression,
+                    'rationale': '최근 5일 모멘텀을 거래량으로 가중하여 변동성이 큰 종목을 포착합니다.',
+                    'score': 0.45,
+                    'path': ['root', 'fallback'],
+                }]
+                trace = []
+
+            best_candidate = candidates[0]
+            reply_lines = [
+                f"{len(candidates)}개의 후보 알파를 탐색했습니다.",
+                f"우선 추천: **{best_candidate['name']}** (점수 {best_candidate['score']:.2f})",
+                f"수식: {best_candidate['expression']}",
+                f"해설: {best_candidate['rationale']}",
+                "다른 후보도 오른쪽 패널에서 확인하고 저장할 수 있습니다.",
+            ]
+            reply = "\n".join(reply_lines)
+            session['candidates'] = candidates
+            session['last_trace'] = trace
+        else:
+            system_instruction = textwrap.dedent(
+                """
+                당신은 AlphaIncubator 용 LangChain 코디네이터입니다.
+                - 사용자의 프로젝트 관련 질문에 한국어로 답하세요.
+                - 알파 전략, 백테스트, GA, LangChain, MCTS 등 플랫폼 기능과 연관된 정보만 제공하세요.
+                - 프로그램 외 질문은 정중히 거절하세요.
+                """
+            ).strip()
+
+            recent_messages = session['messages'][-6:]
+            llm_messages = [{'role': 'system', 'content': system_instruction}]
+            for entry in recent_messages:
+                llm_messages.append({
+                    'role': entry['role'],
+                    'content': entry['content'],
+                })
+            reply = call_local_llm(llm_messages, temperature=0.1)
+
+        session['messages'].append({
+            'role': 'assistant',
+            'content': reply,
+            'timestamp': datetime.now().isoformat(),
+        })
+        session['updated_at'] = datetime.now().isoformat()
+
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'intent': intent,
+            'reply': reply,
+            'candidates': candidates,
+            'mcts_trace': trace,
+            'warnings': warnings,
+            'history': session['messages'],
+        })
+    except Exception as exc:
+        logger.error("인큐베이터 채팅 오류: %s", exc)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/incubator/session/<session_id>', methods=['GET'])
+def get_incubator_session(session_id: str):
+    """저장된 인큐베이터 세션 조회"""
+    session = incubator_sessions.get(session_id)
+    if not session:
+        return jsonify({'success': False, 'error': '세션을 찾을 수 없습니다'}), 404
+
+    return jsonify({
+        'success': True,
+        'session_id': session_id,
+        'history': session.get('messages', []),
+        'candidates': session.get('candidates', []),
+        'mcts_trace': session.get('last_trace', []),
+        'created_at': session.get('created_at'),
+        'updated_at': session.get('updated_at'),
+    })
 
 @app.route('/api/data/factors', methods=['GET'])
 def get_factors():

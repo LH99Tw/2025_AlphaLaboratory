@@ -1,29 +1,35 @@
-import React, { useCallback, useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
-import ReactFlow, {
-  Node,
-  Edge,
-  Controls,
-  Background,
-  useNodesState,
-  useEdgesState,
-  addEdge,
-  Connection,
-  BackgroundVariant,
-} from 'reactflow';
-import 'reactflow/dist/style.css';
+import { Input, Select, message, Alert, Empty, Tooltip } from 'antd';
+import { SendOutlined, ThunderboltOutlined, ReloadOutlined, RobotOutlined } from '@ant-design/icons';
 import { GlassCard } from '../components/common/GlassCard';
 import { GlassButton } from '../components/common/GlassButton';
+import { AlphaCandidatePanel, AlphaCandidateItem } from '../components/AlphaFactory/AlphaCandidatePanel';
 import { theme } from '../styles/theme';
-import { PlayCircleOutlined, PauseCircleOutlined, LoadingOutlined } from '@ant-design/icons';
-import { message } from 'antd';
-import { startGAEvolution, getGAEvolutionStatus } from '../services/api';
+import {
+  postIncubatorChat,
+  fetchIncubatorSession,
+  saveUserAlphas,
+} from '../services/api';
+import type { IncubatorChatResponse, IncubatorMessage, MctsTraceEntry } from '../types';
 
-const Container = styled.div`
+const PageContainer = styled.div`
   display: flex;
   flex-direction: column;
   gap: ${theme.spacing.xl};
-  height: calc(100vh - 200px);
+`;
+
+const Header = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: ${theme.spacing.md};
+`;
+
+const TitleGroup = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${theme.spacing.xs};
 `;
 
 const Title = styled.h1`
@@ -33,534 +39,541 @@ const Title = styled.h1`
   font-weight: 700;
 `;
 
-const FlowContainer = styled.div`
-  flex: 1;
-  background: ${theme.colors.backgroundSecondary};
-  border: 1px solid ${theme.colors.border};
-  border-radius: 20px;
-  overflow: hidden;
-  position: relative;
-  
-  .react-flow {
-    background: ${theme.colors.backgroundDark};
-  }
-  
-  .react-flow__node {
-    background: linear-gradient(135deg, ${theme.colors.liquidGlass} 0%, rgba(255, 255, 255, 0.01) 100%);
-    border: 1px solid ${theme.colors.liquidGlassBorder};
-    border-radius: 16px;
-    padding: ${theme.spacing.md};
-    backdrop-filter: blur(10px);
-    color: ${theme.colors.textPrimary};
-    font-family: ${theme.typography.fontFamily.primary};
-    min-width: 200px;
-    
-    /* Alpha 노드들에 리퀴드 글래스 금색 적용 */
-    &[data-id="3"], &[data-id="4"] {
-      background: ${theme.colors.liquidGoldGradient};
-      border: 1px solid ${theme.colors.liquidGoldBorder};
-      backdrop-filter: blur(15px);
-      box-shadow: 0 4px 20px rgba(212, 175, 55, 0.1);
-    }
-    
-    &.selected {
-      border-color: ${theme.colors.accentPrimary};
-      box-shadow: ${theme.shadows.glow};
-    }
-  }
-  
-  .react-flow__edge-path {
-    stroke: ${theme.colors.accentPrimary};
-    stroke-width: 2;
-  }
-  
-  .react-flow__handle {
-    background: ${theme.colors.accentPrimary};
-    width: 10px;
-    height: 10px;
-  }
-  
-  .react-flow__controls {
-    background: ${theme.colors.backgroundSecondary};
-    border: 1px solid ${theme.colors.border};
-    border-radius: 12px;
-    
-    button {
-      background: ${theme.colors.liquidGlass};
-      border-bottom: 1px solid ${theme.colors.border};
-      color: ${theme.colors.textPrimary};
-      
-      &:hover {
-        background: ${theme.colors.liquidGlassHover};
-      }
-    }
-  }
+const Subtitle = styled.p`
+  margin: 0;
+  color: ${theme.colors.textSecondary};
+  font-size: ${theme.typography.fontSize.body};
 `;
 
-const ControlPanel = styled(GlassCard)`
+const Content = styled.div`
   display: flex;
-  gap: ${theme.spacing.md};
-  align-items: center;
+  gap: ${theme.spacing.xl};
+  min-height: 620px;
 `;
 
-const StatusBadge = styled.div<{ $running: boolean }>`
-  display: flex;
-  align-items: center;
-  gap: ${theme.spacing.sm};
-  padding: ${theme.spacing.sm} ${theme.spacing.md};
-  background: ${props => props.$running ? theme.colors.liquidGold : 'rgba(95, 99, 104, 0.1)'};
-  border: 1px solid ${props => props.$running ? theme.colors.liquidGoldBorder : theme.colors.border};
-  border-radius: 12px;
-  color: ${props => props.$running ? theme.colors.textPrimary : theme.colors.textSecondary};
-  font-weight: 600;
-  font-size: ${theme.typography.fontSize.caption};
-  backdrop-filter: blur(10px);
-`;
-
-const LogContainer = styled(GlassCard)`
+const ChatColumn = styled.div`
   flex: 1;
   display: flex;
   flex-direction: column;
-  max-height: 400px;
-  min-height: 200px;
+  gap: ${theme.spacing.lg};
 `;
 
-const LogHeader = styled.div`
+const ChatCard = styled(GlassCard)`
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 520px;
+`;
+
+const ChatHeader = styled.div`
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding-bottom: ${theme.spacing.md};
   border-bottom: 1px solid ${theme.colors.border};
+  gap: ${theme.spacing.md};
 `;
 
-const LogTitle = styled.h4`
-  margin: 0;
-  font-size: ${theme.typography.fontSize.body};
-  color: ${theme.colors.textPrimary};
-  font-weight: 600;
-`;
-
-const ClearLogButton = styled.button`
-  background: none;
-  border: 1px solid ${theme.colors.border};
+const SessionInfo = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${theme.spacing.xs};
   color: ${theme.colors.textSecondary};
-  padding: ${theme.spacing.xs} ${theme.spacing.sm};
-  border-radius: 8px;
-  cursor: pointer;
   font-size: ${theme.typography.fontSize.caption};
-  transition: all ${theme.transitions.spring};
+`;
 
-  &:hover {
-    border-color: ${theme.colors.accentPrimary};
-    color: ${theme.colors.accentPrimary};
+const SessionTag = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: ${theme.spacing.xs};
+  padding: ${theme.spacing.xs} ${theme.spacing.sm};
+  border-radius: 999px;
+  background: ${theme.colors.liquidGlass};
+  border: 1px solid ${theme.colors.liquidGlassBorder};
+  color: ${theme.colors.textSecondary};
+  font-weight: 600;
+  font-size: ${theme.typography.fontSize.caption};
+`;
+
+const ModeSelect = styled(Select)`
+  min-width: 180px;
+
+  .ant-select-selector {
+    background: ${theme.colors.liquidGlass};
+    border-radius: 12px !important;
+    border: 1px solid ${theme.colors.liquidGlassBorder} !important;
+    color: ${theme.colors.textPrimary};
+  }
+
+  .ant-select-arrow {
+    color: ${theme.colors.textSecondary};
   }
 `;
 
-const LogContent = styled.div`
+const Messages = styled.div`
   flex: 1;
   overflow-y: auto;
-  font-family: ${theme.typography.fontFamily.display};
-  font-size: ${theme.typography.fontSize.caption};
-  line-height: 1.4;
-  color: ${theme.colors.textSecondary};
+  display: flex;
+  flex-direction: column;
+  gap: ${theme.spacing.md};
+  padding: ${theme.spacing.md} 0;
 
   &::-webkit-scrollbar {
     width: 8px;
   }
 
-  &::-webkit-scrollbar-track {
-    background: ${theme.colors.backgroundSecondary};
+  &::-webkit-scrollbar-thumb {
+    background: ${theme.colors.border};
     border-radius: 4px;
+  }
+`;
+
+const MessageRow = styled.div<{ $role: string }>`
+  display: flex;
+  justify-content: ${({ $role }) => ($role === 'assistant' ? 'flex-start' : 'flex-end')};
+`;
+
+const MessageBubble = styled.div<{ $role: string }>`
+  max-width: 75%;
+  padding: ${theme.spacing.md};
+  border-radius: 18px;
+  line-height: 1.5;
+  font-size: ${theme.typography.fontSize.body};
+  color: ${({ $role }) =>
+    $role === 'assistant' ? theme.colors.textPrimary : theme.colors.backgroundDark};
+  background: ${({ $role }) =>
+    $role === 'assistant' ? theme.colors.liquidGlass : theme.colors.liquidGoldGradient};
+  border: 1px solid
+    ${({ $role }) =>
+      $role === 'assistant' ? theme.colors.liquidGlassBorder : theme.colors.liquidGoldBorder};
+  white-space: pre-wrap;
+  word-break: break-word;
+`;
+
+const MessageMeta = styled.span`
+  display: block;
+  margin-top: ${theme.spacing.xs};
+  color: ${theme.colors.textSecondary};
+  font-size: ${theme.typography.fontSize.caption};
+  text-align: right;
+`;
+
+const InputBar = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${theme.spacing.sm};
+  padding-top: ${theme.spacing.md};
+  border-top: 1px solid ${theme.colors.border};
+`;
+
+const Actions = styled.div`
+  display: flex;
+  gap: ${theme.spacing.sm};
+  align-items: center;
+  justify-content: space-between;
+`;
+
+const ButtonGroup = styled.div`
+  display: flex;
+  gap: ${theme.spacing.sm};
+`;
+
+const CandidateColumn = styled.div`
+  width: 40%;
+  min-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: ${theme.spacing.lg};
+`;
+
+const TraceCard = styled(GlassCard)`
+  display: flex;
+  flex-direction: column;
+  gap: ${theme.spacing.sm};
+  max-height: 260px;
+  overflow: hidden;
+`;
+
+const TraceList = styled.div`
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: ${theme.spacing.sm};
+
+  &::-webkit-scrollbar {
+    width: 6px;
   }
 
   &::-webkit-scrollbar-thumb {
     background: ${theme.colors.border};
     border-radius: 4px;
-
-    &:hover {
-      background: ${theme.colors.borderHover};
-    }
   }
 `;
 
-const LogLine = styled.div`
-  padding: ${theme.spacing.xs} 0;
-  border-bottom: 1px solid rgba(95, 99, 104, 0.1);
-  white-space: pre-wrap;
-  word-break: break-all;
-
-  &:last-child {
-    border-bottom: none;
-  }
-`;
-
-const BottomPanel = styled.div`
-  display: flex;
-  gap: ${theme.spacing.xl};
-  margin-top: ${theme.spacing.xl};
-`;
-
-const MainContent = styled.div`
-  flex: 1;
-`;
-
-const LogPanel = styled.div`
-  width: 500px;
-  min-width: 400px;
-  flex-shrink: 0;
-`;
-
-const NodeLabel = styled.div`
-  font-weight: 600;
-  margin-bottom: ${theme.spacing.sm};
-  color: ${theme.colors.textPrimary};
-`;
-
-const NodeData = styled.div`
+const TraceItem = styled.div`
+  border-radius: 12px;
+  background: ${theme.colors.liquidGlass};
+  border: 1px solid ${theme.colors.liquidGlassBorder};
+  padding: ${theme.spacing.sm};
   font-size: ${theme.typography.fontSize.caption};
   color: ${theme.colors.textSecondary};
-  margin-top: ${theme.spacing.sm};
+  line-height: 1.4;
 `;
 
-const initialNodes: Node[] = [
-  {
-    id: '1',
-    type: 'input',
-    data: { 
-      label: (
-        <>
-          <NodeLabel>📊 데이터 소스</NodeLabel>
-          <NodeData>S&P 500 과거 데이터</NodeData>
-        </>
-      )
-    },
-    position: { x: 50, y: 50 },
-  },
-  {
-    id: '2',
-    data: { 
-      label: (
-        <>
-          <NodeLabel>🧬 GA 엔진</NodeLabel>
-          <NodeData>개체수: 50 | 세대: 1/10</NodeData>
-        </>
-      )
-    },
-    position: { x: 350, y: 50 },
-  },
-  {
-    id: '3',
-    data: { 
-      label: (
-        <>
-          <NodeLabel>⚡ 알파 001</NodeLabel>
-          <NodeData>적합도: 0.85 | 순위: 1</NodeData>
-        </>
-      )
-    },
-    position: { x: 350, y: 200 },
-  },
-  {
-    id: '4',
-    data: { 
-      label: (
-        <>
-          <NodeLabel>⚡ 알파 002</NodeLabel>
-          <NodeData>적합도: 0.72 | 순위: 2</NodeData>
-        </>
-      )
-    },
-    position: { x: 350, y: 350 },
-  },
-  {
-    id: '5',
-    type: 'output',
-    data: { 
-      label: (
-        <>
-          <NodeLabel>🎯 최고 알파</NodeLabel>
-          <NodeData>거래용으로 선택됨</NodeData>
-        </>
-      )
-    },
-    position: { x: 650, y: 200 },
-  },
+const TraceHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: ${theme.spacing.xs};
+  color: ${theme.colors.textPrimary};
+  font-weight: 600;
+`;
+
+const WarningList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${theme.spacing.sm};
+`;
+
+type Mode = 'generate' | 'chat';
+
+const modeOptions: { value: Mode; label: string }[] = [
+  { value: 'generate', label: '알파 생성 (LangChain + MCTS)' },
+  { value: 'chat', label: '플랫폼 Q&A' },
 ];
 
-const initialEdges: Edge[] = [
-  { id: 'e1-2', source: '1', target: '2', animated: true },
-  { id: 'e2-3', source: '2', target: '3', animated: true },
-  { id: 'e2-4', source: '2', target: '4', animated: true },
-  { id: 'e3-5', source: '3', target: '5', animated: true },
-];
+const DEFAULT_WELCOME_MESSAGE: IncubatorMessage = {
+  role: 'assistant',
+  content:
+    '안녕하세요! AlphaIncubator입니다. 변동성·거래량·모멘텀 등 원하는 조건을 알려주시면 LangChain + MCTS로 맞춤형 알파 후보를 찾아드립니다.',
+};
 
-interface GAStatus {
-  status: 'idle' | 'running' | 'completed' | 'failed';
-  progress: number;
-  current_generation?: number;
-  total_generations?: number;
-  best_fitness?: number;
-  task_id?: string;
-  results?: any[];
-  logs?: string[];
-}
+const SESSION_STORAGE_KEY = 'alphaIncubatorSessionId';
+
+const normalizeMessages = (history: IncubatorMessage[] | undefined): IncubatorMessage[] => {
+  if (!history || history.length === 0) {
+    return [DEFAULT_WELCOME_MESSAGE];
+  }
+  return history;
+};
+
+const mapCandidates = (
+  apiResponse: IncubatorChatResponse | undefined,
+  previous: AlphaCandidateItem[],
+): AlphaCandidateItem[] => {
+  if (!apiResponse?.candidates) {
+    return previous;
+  }
+  return apiResponse.candidates.map((candidate, index) => {
+    const existing = previous.find((item) => item.expression === candidate.expression);
+    return {
+      id: candidate.id || `candidate_${index + 1}`,
+      name: candidate.name || `Alpha Candidate ${index + 1}`,
+      expression: candidate.expression,
+      rationale: candidate.rationale || '설명이 제공되지 않았습니다.',
+      score: candidate.score ?? 0.4,
+      path: candidate.path,
+      selected: existing?.selected ?? false,
+    };
+  });
+};
 
 export const AlphaIncubator: React.FC = () => {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const [gaStatus, setGaStatus] = useState<GAStatus>({
-    status: 'idle',
-    progress: 0
-  });
-  const [isPolling, setIsPolling] = useState(false);
-  const logContentRef = useRef<HTMLDivElement>(null);
+  const [mode, setMode] = useState<Mode>('generate');
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<IncubatorMessage[]>([DEFAULT_WELCOME_MESSAGE]);
+  const [inputValue, setInputValue] = useState('');
+  const [candidates, setCandidates] = useState<AlphaCandidateItem[]>([]);
+  const [trace, setTrace] = useState<MctsTraceEntry[]>([]);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  const onConnect = useCallback(
-    (params: Connection) => setEdges((eds) => addEdge(params, eds)),
-    [setEdges]
-  );
-
-  // GA 실행 시작
-  const handleStartGA = async () => {
-    try {
-      setGaStatus({ status: 'running', progress: 0 });
-
-      const response = await startGAEvolution({
-        population_size: 50,
-        generations: 10,
-        max_depth: 3
-      });
-
-      if (response.success && response.task_id) {
-        setGaStatus(prev => ({
-          ...prev,
-          task_id: response.task_id,
-          status: 'running'
-        }));
-
-        message.success('알파 진화가 시작되었습니다!');
-        setIsPolling(true);
-      } else {
-        throw new Error(response.error || 'GA 실행에 실패했습니다');
-      }
-    } catch (error: any) {
-      message.error(`GA 실행 실패: ${error.message}`);
-      setGaStatus({ status: 'idle', progress: 0 });
+  const scrollToBottom = useCallback(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  };
+  }, []);
 
-  // GA 상태 폴링
-  const pollGAStatus = useCallback(async () => {
-    if (!gaStatus.task_id || !isPolling) return;
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
 
-    try {
-      const response = await getGAEvolutionStatus(gaStatus.task_id);
+  useEffect(() => {
+    const storedSession = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!storedSession) {
+      return;
+    }
 
-      setGaStatus(prev => {
-        const newStatus = {
-          ...prev,
-          status: response.status,
-          progress: response.progress || prev.progress,
-          current_generation: response.current_generation,
-          total_generations: response.total_generations,
-          best_fitness: response.best_fitness,
-          results: response.results,
-          logs: response.logs || prev.logs || [],
-          error: response.error,
-          error_details: response.error_details
-        };
-
-        console.log('상태 업데이트:', {
-          이전상태: prev.status,
-          새상태: response.status,
-          진행률: response.progress,
-          결과수: response.results?.length || 0,
-          로그수: response.logs?.length || 0
-        });
-
-        return newStatus;
-      });
-
-      // 완료 또는 실패 시 폴링 중지
-      if (response.status === 'completed' || response.status === 'failed') {
-        console.log('폴링 중단 조건 충족:', response.status);
-        setIsPolling(false);
-
-        if (response.status === 'completed') {
-          message.success(`알파 진화가 완료되었습니다! 총 ${response.results?.length || 0}개 알파 생성`);
-          updateNodesWithResults(response.results || []);
-        } else {
-          console.log('실패 상태 감지:', { error: response.error, error_details: response.error_details });
-          const errorMessage = response.error || '알파 진화에 실패했습니다.';
-          const errorDetails = response.error_details ? `\n\n세부 정보: ${response.error_details}` : '';
-          message.error(`${errorMessage}${errorDetails}`);
+    fetchIncubatorSession(storedSession)
+      .then((response) => {
+        if (!response.success) {
+          throw new Error(response.error || '세션을 불러오지 못했습니다.');
         }
-      }
+        setSessionId(response.session_id);
+        setMessages(normalizeMessages(response.history));
+        setCandidates(
+          (response.candidates || []).map((candidate, index) => ({
+            id: candidate.id || `candidate_${index + 1}`,
+            name: candidate.name || `Alpha Candidate ${index + 1}`,
+            expression: candidate.expression,
+            rationale: candidate.rationale || '설명이 제공되지 않았습니다.',
+            score: candidate.score ?? 0.4,
+            path: candidate.path,
+            selected: false,
+          })),
+        );
+        setTrace(response.mcts_trace || []);
+      })
+      .catch((error: any) => {
+        console.warn('세션 복원 실패:', error);
+        localStorage.removeItem(SESSION_STORAGE_KEY);
+      });
+  }, []);
+
+  const handleModeChange = (value: Mode) => {
+    setMode(value);
+  };
+
+  const handleChangeInput = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputValue(event.target.value);
+  };
+
+  const handleResetSession = () => {
+    setSessionId(null);
+    setMessages([DEFAULT_WELCOME_MESSAGE]);
+    setCandidates([]);
+    setTrace([]);
+    setWarnings([]);
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    message.success('새 세션을 시작했습니다.');
+  };
+
+  const handleSaveCandidates = async (selected: AlphaCandidateItem[]) => {
+    try {
+      setSaving(true);
+      const payload = selected.map((candidate) => ({
+        name: candidate.name,
+        expression: candidate.expression,
+        description: candidate.rationale,
+        tags: ['incubator', 'mcts'],
+        fitness: candidate.score,
+      }));
+      await saveUserAlphas(payload);
+      message.success(`${selected.length}개의 알파가 저장되었습니다.`);
+      setCandidates((prev) =>
+        prev.map((candidate) =>
+          selected.some((item) => item.id === candidate.id)
+            ? { ...candidate, selected: false }
+            : candidate,
+        ),
+      );
     } catch (error: any) {
-      console.error('GA 상태 조회 실패:', error);
-      // 폴링은 계속 유지하되 에러는 조용히 처리
+      message.error(error?.response?.data?.error || '알파 저장에 실패했습니다.');
+    } finally {
+      setSaving(false);
     }
-  }, [gaStatus.task_id, isPolling]);
-
-  // 폴링 효과
-  useEffect(() => {
-    if (isPolling && gaStatus.task_id) {
-      console.log('폴링 시작:', gaStatus.task_id);
-      const interval = setInterval(pollGAStatus, 3000); // 3초마다 폴링 (더 길게)
-      return () => {
-        console.log('폴링 중단');
-        clearInterval(interval);
-      };
-    }
-  }, [isPolling, pollGAStatus, gaStatus.task_id]);
-
-  // 로그 업데이트 시 자동 스크롤
-  useEffect(() => {
-    if (logContentRef.current && gaStatus.logs && gaStatus.logs.length > 0) {
-      logContentRef.current.scrollTop = logContentRef.current.scrollHeight;
-    }
-  }, [gaStatus.logs]);
-
-  // 노드 업데이트 함수
-  const updateNodesWithResults = (results: any[]) => {
-    if (!results || results.length === 0) return;
-
-    const updatedNodes = nodes.map(node => {
-      if (node.id === '3') {
-        return {
-          ...node,
-          data: {
-            label: (
-              <>
-                <NodeLabel>⚡ 알파 001</NodeLabel>
-                <NodeData>
-                  {results[0] ? `적합도: ${results[0].fitness?.toFixed(4) || 'N/A'}` : '데이터 없음'}
-                </NodeData>
-              </>
-            )
-          }
-        };
-      }
-      if (node.id === '4') {
-        return {
-          ...node,
-          data: {
-            label: (
-              <>
-                <NodeLabel>⚡ 알파 002</NodeLabel>
-                <NodeData>
-                  {results[1] ? `적합도: ${results[1].fitness?.toFixed(4) || 'N/A'}` : '데이터 없음'}
-                </NodeData>
-              </>
-            )
-          }
-        };
-      }
-      return node;
-    });
-
-    // 노드 상태 업데이트
-    setNodes(updatedNodes);
   };
 
-  // 로그 클리어 함수
-  const clearLogs = () => {
-    setGaStatus(prev => ({
-      ...prev,
-      logs: []
+  const prepareHistoryForRequest = useCallback(() => {
+    return messages.map((message) => ({
+      role: message.role,
+      content: message.content,
     }));
+  }, [messages]);
+
+  const handleSendMessage = async () => {
+    const trimmed = inputValue.trim();
+    if (!trimmed) {
+      message.warning('메시지를 입력해 주세요.');
+      return;
+    }
+
+    const optimisticMessage: IncubatorMessage = {
+      role: 'user',
+      content: trimmed,
+      timestamp: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, optimisticMessage]);
+    setInputValue('');
+    setLoading(true);
+
+    try {
+      const response = await postIncubatorChat({
+        message: trimmed,
+        intent: mode,
+        session_id: sessionId || undefined,
+        history: prepareHistoryForRequest(),
+      });
+
+      if (!response.success) {
+        throw new Error(response.error || '인큐베이터 응답에 실패했습니다.');
+      }
+
+      setSessionId(response.session_id);
+      localStorage.setItem(SESSION_STORAGE_KEY, response.session_id);
+      setMessages(normalizeMessages(response.history));
+      setCandidates((prev) => mapCandidates(response, prev));
+      setTrace(response.mcts_trace || []);
+      setWarnings(response.warnings || []);
+    } catch (error: any) {
+      console.error('인큐베이터 오류:', error);
+      setWarnings([]);
+      message.error(error?.message || '인큐베이터와의 통신에 실패했습니다.');
+      setMessages((prev) => prev.slice(0, prev.length - 1));
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const renderTrace = useMemo(() => {
+    if (!trace || trace.length === 0) {
+      return <Empty description="MCTS 탐색 로그가 없습니다." />;
+    }
+    return trace.map((entry) => (
+      <TraceItem key={`trace-${entry.iteration}`}>
+        <TraceHeader>
+          <span>Iteration {entry.iteration}</span>
+          <span>Score {(entry.score * 100).toFixed(0)}</span>
+        </TraceHeader>
+        <div>
+          <strong>Prompt:</strong> {entry.prompt}
+        </div>
+        <div>
+          <strong>Candidate:</strong> {entry.scored_expression}
+        </div>
+      </TraceItem>
+    ));
+  }, [trace]);
 
   return (
-    <Container>
-      <div>
-        <Title>알파 부화장</Title>
-        <p style={{ color: theme.colors.textSecondary, marginTop: theme.spacing.sm }}>
-          AI 기반 알파 연구 어시스턴트
-        </p>
-      </div>
-
-      <ControlPanel>
-        <StatusBadge $running={gaStatus.status === 'running'}>
-          <div style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            background: gaStatus.status === 'running' ? theme.colors.accentPrimary : theme.colors.textSecondary
-          }} />
-          {gaStatus.status === 'running'
-            ? `진화 중 (${gaStatus.current_generation || 0}/${gaStatus.total_generations || 0})`
-            : gaStatus.status === 'completed'
-            ? '완료됨'
-            : gaStatus.status === 'failed'
-            ? '실패함'
-            : '대기 중'
-          }
-        </StatusBadge>
-
-        <GlassButton
-          variant="primary"
-          onClick={handleStartGA}
-          disabled={gaStatus.status === 'running' || isPolling}
-          icon={
-            gaStatus.status === 'running' || isPolling
-              ? <LoadingOutlined />
-              : <PlayCircleOutlined />
-          }
-        >
-          {gaStatus.status === 'running' || isPolling
-            ? `진화 중... (${gaStatus.progress}%)`
-            : '진화 시작'
-          }
+    <PageContainer>
+      <Header>
+        <TitleGroup>
+          <Title>Alpha Incubator</Title>
+          <Subtitle>
+            LangChain과 MCTS를 결합하여 사용자가 정의한 목표에 맞는 맞춤형 알파 수식을 생성합니다.
+          </Subtitle>
+        </TitleGroup>
+        <GlassButton variant="secondary" icon={<ReloadOutlined />} onClick={handleResetSession}>
+          새 세션 시작
         </GlassButton>
-      </ControlPanel>
+      </Header>
 
-      <BottomPanel>
-        <MainContent>
-          <FlowContainer>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              fitView
-            >
-              <Background variant={BackgroundVariant.Dots} gap={20} size={1} color={theme.colors.border} />
-              <Controls />
-            </ReactFlow>
-          </FlowContainer>
-        </MainContent>
+      <Content>
+        <ChatColumn>
+          <ChatCard>
+            <ChatHeader>
+              <SessionInfo>
+                <SessionTag>
+                  <RobotOutlined /> korean-qwen · LangChain · MCTS
+                </SessionTag>
+                <span>
+                  현재 모드: <strong>{mode === 'generate' ? '알파 생성' : '플랫폼 Q&A'}</strong>
+                </span>
+              </SessionInfo>
+              <ModeSelect
+                value={mode}
+                onChange={(value) => handleModeChange(value as Mode)}
+                options={modeOptions}
+                disabled={loading}
+              />
+            </ChatHeader>
 
-        <LogPanel>
-          <LogContainer>
-            <LogHeader>
-              <LogTitle>실행 로그</LogTitle>
-              <ClearLogButton onClick={clearLogs}>
-                로그 초기화
-              </ClearLogButton>
-            </LogHeader>
+            <Messages>
+              {messages.map((messageItem, index) => (
+                <MessageRow key={`${messageItem.role}-${index}`} $role={messageItem.role}>
+                  <MessageBubble $role={messageItem.role}>
+                    {messageItem.content}
+                    {messageItem.timestamp && (
+                      <MessageMeta>
+                        {new Date(messageItem.timestamp).toLocaleTimeString('ko-KR', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </MessageMeta>
+                    )}
+                  </MessageBubble>
+                </MessageRow>
+              ))}
+              <div ref={messagesEndRef} />
+            </Messages>
 
-            <LogContent ref={logContentRef}>
-              {gaStatus.logs && gaStatus.logs.length > 0 ? (
-                gaStatus.logs.map((log, index) => (
-                  <LogLine key={index}>{log}</LogLine>
-                ))
-              ) : (
-                <LogLine style={{
-                  color: theme.colors.textSecondary,
-                  fontStyle: 'italic',
-                  textAlign: 'center',
-                  padding: theme.spacing.xl
-                }}>
-                  GA 실행을 시작하면 실시간 로그가 여기에 표시됩니다.<br/>
-                  "진화 시작" 버튼을 클릭해보세요!
-                </LogLine>
-              )}
-            </LogContent>
-          </LogContainer>
-        </LogPanel>
-      </BottomPanel>
-    </Container>
+            <InputBar>
+              <Input.TextArea
+                value={inputValue}
+                onChange={handleChangeInput}
+                placeholder={
+                  mode === 'generate'
+                    ? '예: 변동성과 거래량을 모두 고려한 주간 리밸런싱 전략이 필요해.'
+                    : '플랫폼 사용법이나 백테스트에 대해 궁금한 내용을 입력해 주세요.'
+                }
+                autoSize={{ minRows: 3, maxRows: 6 }}
+                onPressEnter={(event) => {
+                  if (!event.shiftKey) {
+                    event.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+              />
+              <Actions>
+                <Tooltip title="이전 대화 내용이 자동 전송됩니다.">
+                  <span style={{ color: theme.colors.textSecondary, fontSize: 12 }}>
+                    Enter로 전송 · Shift+Enter 줄바꿈
+                  </span>
+                </Tooltip>
+                <ButtonGroup>
+                  <GlassButton
+                    icon={<SendOutlined />}
+                    onClick={handleSendMessage}
+                    disabled={loading}
+                    loading={loading}
+                  >
+                    {mode === 'generate' ? '알파 생성' : '질문 전송'}
+                  </GlassButton>
+                </ButtonGroup>
+              </Actions>
+            </InputBar>
+          </ChatCard>
+
+          {warnings.length > 0 && (
+            <WarningList>
+              {warnings.map((warning, index) => (
+                <Alert
+                  key={`warn-${index}`}
+                  message={warning}
+                  type="warning"
+                  showIcon
+                  style={{ borderRadius: 12 }}
+                />
+              ))}
+            </WarningList>
+          )}
+        </ChatColumn>
+
+        <CandidateColumn>
+          <AlphaCandidatePanel
+            candidates={candidates}
+            onChange={setCandidates}
+            onSave={handleSaveCandidates}
+            isSaving={saving}
+          />
+
+          <TraceCard>
+            <TraceHeader>
+              <span>MCTS 탐색 로그</span>
+              <Tooltip title="LangChain이 Monte Carlo Tree Search 과정에서 탐색한 경로입니다.">
+                <ThunderboltOutlined style={{ color: theme.colors.accentPrimary }} />
+              </Tooltip>
+            </TraceHeader>
+            <TraceList>{renderTrace}</TraceList>
+          </TraceCard>
+        </CandidateColumn>
+      </Content>
+    </PageContainer>
   );
 };
+
+export default AlphaIncubator;

@@ -1,10 +1,12 @@
 import axios from 'axios';
-import type { 
-  BacktestParams, 
-  BacktestStatus, 
-  GAParams, 
+import type {
+  BacktestParams,
+  BacktestStatus,
+  GAParams,
   ApiResponse,
-  ChatMessage
+  ChatMessage,
+  IncubatorChatResponse,
+  IncubatorMessage,
 } from '../types';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
@@ -70,6 +72,22 @@ export const sendChatMessage = async (message: string, userId: string = 'user123
 // Alias for compatibility
 export const chatWithAgent = async (message: string) => {
   const response = await api.post('/api/chat', { message });
+  return response.data;
+};
+
+// LangChain + MCTS Incubator API
+export const postIncubatorChat = async (payload: {
+  message: string;
+  intent?: string;
+  session_id?: string;
+  history?: IncubatorMessage[];
+}): Promise<IncubatorChatResponse> => {
+  const response = await api.post('/api/incubator/chat', payload, { withCredentials: true });
+  return response.data;
+};
+
+export const fetchIncubatorSession = async (sessionId: string): Promise<IncubatorChatResponse> => {
+  const response = await api.get(`/api/incubator/session/${sessionId}`, { withCredentials: true });
   return response.data;
 };
 

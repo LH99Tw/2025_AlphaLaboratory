@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import styled from 'styled-components';
 import { GlassCard } from '../components/common/GlassCard';
 import { theme } from '../styles/theme';
@@ -13,7 +13,7 @@ import {
 } from 'chart.js';
 import { Doughnut, Bar } from 'react-chartjs-2';
 import { useAuth } from '../contexts/AuthContext';
-import { Button, Input, Modal, Form, message, Popconfirm, Select, Tag, Tooltip } from 'antd';
+import { Button, Input, Modal, Form, message, Popconfirm, Select, Tag, Tooltip, Pagination } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { GlassButton } from '../components/common/GlassButton';
 import { StoredAlpha, PortfolioStock } from '../types';
@@ -345,6 +345,9 @@ export const Dashboard: React.FC = () => {
   const [alphaLoading, setAlphaLoading] = useState(false);
   const [isAlphaModalVisible, setIsAlphaModalVisible] = useState(false);
   const [editingAlpha, setEditingAlpha] = useState<StoredAlpha | null>(null);
+  const [alphaSearch, setAlphaSearch] = useState('');
+  const [alphaPage, setAlphaPage] = useState(1);
+  const alphaPageSize = 10;
   const [alphaForm] = Form.useForm();
 
 
@@ -685,13 +688,53 @@ export const Dashboard: React.FC = () => {
     </>
   );
 
-  const renderAlphaManagement = () => {
-    const sortedPrivate = [...privateAlphas].sort((a, b) => {
+  const sortedPrivateAlphas = useMemo(() => {
+    return [...privateAlphas].sort((a, b) => {
       const aTime = new Date(a.updated_at || a.created_at || 0).getTime();
       const bTime = new Date(b.updated_at || b.created_at || 0).getTime();
       return bTime - aTime;
     });
-    const combinedAlphas = [...sortedPrivate, ...sharedAlphas];
+  }, [privateAlphas]);
+
+  const combinedAlphas = useMemo(
+    () => [...sortedPrivateAlphas, ...sharedAlphas],
+    [sortedPrivateAlphas, sharedAlphas]
+  );
+
+  const filteredCombinedAlphas = useMemo(() => {
+    const keyword = alphaSearch.trim().toLowerCase();
+    if (!keyword) {
+      return [...combinedAlphas];
+    }
+    return combinedAlphas.filter((alpha) => {
+      const name = alpha.name?.toLowerCase() || '';
+      const expression = (alpha.expression || alpha.metadata?.expression || '').toLowerCase();
+      return name.includes(keyword) || expression.includes(keyword);
+    });
+  }, [combinedAlphas, alphaSearch]);
+
+  const totalAlphaPages = Math.max(1, Math.ceil(filteredCombinedAlphas.length / alphaPageSize));
+
+  useEffect(() => {
+    if (alphaPage > totalAlphaPages) {
+      setAlphaPage(totalAlphaPages);
+    }
+  }, [alphaPage, totalAlphaPages]);
+
+  useEffect(() => {
+    setAlphaPage(1);
+  }, [alphaSearch, combinedAlphas.length]);
+
+  const paginatedCombinedAlphas = useMemo(
+    () =>
+      filteredCombinedAlphas.slice(
+        (alphaPage - 1) * alphaPageSize,
+        alphaPage * alphaPageSize
+      ),
+    [filteredCombinedAlphas, alphaPage, alphaPageSize]
+  );
+
+  const renderAlphaManagement = () => {
 
     return (
       <>
@@ -721,53 +764,32 @@ export const Dashboard: React.FC = () => {
             <ThunderboltOutlined style={{ color: theme.colors.accentGold }} />
             공용 알파 라이브러리
           </ChartTitle>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: theme.spacing.md }}>
-            <div style={{
+          <div
+            style={{
               padding: theme.spacing.lg,
               background: theme.colors.liquidGlass,
               border: `1px solid ${theme.colors.liquidGlassBorder}`,
               borderRadius: '12px',
-              textAlign: 'center'
-            }}>
-              <div style={{ color: theme.colors.textSecondary, fontSize: theme.typography.fontSize.body, marginBottom: theme.spacing.sm }}>
-                저장된 공용 알파
-              </div>
-              <div style={{ color: theme.colors.textPrimary, fontSize: theme.typography.fontSize.h3, fontWeight: 600 }}>
-                {sharedAlphas.length}개 사용 가능
-              </div>
+              textAlign: 'center',
+            }}
+          >
+            <div
+              style={{
+                color: theme.colors.textSecondary,
+                fontSize: theme.typography.fontSize.body,
+                marginBottom: theme.spacing.sm,
+              }}
+            >
+              저장된 공용 알파
             </div>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-              gap: theme.spacing.sm,
-              maxHeight: '150px',
-              overflowY: 'auto'
-            }}>
-              {sharedAlphas
-                .slice(0, 20)
-                .map(alpha => (
-                  <Tag key={alpha.id} color="gold" style={{
-                    padding: '6px 12px',
-                    borderRadius: '8px',
-                    textAlign: 'center',
-                    fontSize: '12px',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis'
-                  }}>
-                    {alpha.name}
-                  </Tag>
-                ))}
-              {sharedAlphas.length > 20 && (
-                <Tag color="default" style={{
-                  padding: '6px 12px',
-                  borderRadius: '8px',
-                  textAlign: 'center',
-                  fontSize: '12px'
-                }}>
-                  +{sharedAlphas.length - 20}개 더
-                </Tag>
-              )}
+            <div
+              style={{
+                color: theme.colors.textPrimary,
+                fontSize: theme.typography.fontSize.h3,
+                fontWeight: 600,
+              }}
+            >
+              {sharedAlphas.length}개 사용 가능
             </div>
           </div>
         </ChartCard>
@@ -801,12 +823,21 @@ export const Dashboard: React.FC = () => {
       <ChartCard>
         <ChartTitle>알파 목록</ChartTitle>
         <div style={{ display: 'flex', flexDirection: 'column', gap: theme.spacing.md }}>
+          <Input.Search
+            placeholder="알파 이름 또는 수식을 검색하세요"
+            allowClear
+            value={alphaSearch}
+            onChange={(event) => setAlphaSearch(event.target.value)}
+            onSearch={(value) => setAlphaSearch(value)}
+            style={{ borderRadius: '12px' }}
+          />
+
           {alphaLoading ? (
             <div style={{ textAlign: 'center', padding: theme.spacing.xl, color: theme.colors.textSecondary }}>
               알파 목록을 불러오는 중...
             </div>
-          ) : combinedAlphas.length > 0 ? (
-            combinedAlphas.map(alpha => {
+          ) : filteredCombinedAlphas.length > 0 ? (
+            paginatedCombinedAlphas.map(alpha => {
               const fitnessValue =
                 typeof alpha.metadata?.fitness === 'number'
                   ? Number(alpha.metadata?.fitness)
@@ -918,6 +949,15 @@ export const Dashboard: React.FC = () => {
               </div>
             </div>
           )}
+
+          <Pagination
+            current={alphaPage}
+            pageSize={alphaPageSize}
+            total={filteredCombinedAlphas.length}
+            onChange={(page) => setAlphaPage(page)}
+            showSizeChanger={false}
+            hideOnSinglePage
+          />
         </div>
       </ChartCard>
       </>

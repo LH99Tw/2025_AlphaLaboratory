@@ -1110,3 +1110,9 @@ allowed_fields = ['name', 'email', 'profile_emoji']
     - `calculate_factor_performance` 유틸을 추가해 리밸런싱 주기·보유일수 기반 지표 계산을 공통화하고, 포트폴리오 성과 API가 동일 로직을 사용하도록 리팩토링했습니다. (`backend/app.py`)
     - `/api/ga/backtest/<task_id>`가 GA가 생성한 표현식을 트랜스파일해 실제 시세 데이터로 백테스트하도록 비동기 처리와 상태 저장을 구현하여, 랜덤 더미 결과 없이 완료 후에도 `/api/backtest/status/<id>`로 재확인할 수 있게 했습니다. (`backend/app.py`)
     - Backtest 페이지 누적 수익률 그래프가 롤링 CAGR 대신 `cumulative_returns`를 사용해 첫 지점을 항상 0%로 표시하도록 수정했습니다. (`frontend/src/pages/Backtest.tsx`)
+
+[28](20251019):LangChain+MCTS AlphaIncubator 통합 및 대시보드 알파 검색 UX 개선
+    - Ollama korean-qwen 모델을 이용한 LangChain+MCTS 파이프라인을 `/api/incubator/chat`/`session/<id>` 엔드포인트로 구현하고, 오프라인 시 규칙 기반 답변으로 폴백하도록 했습니다. (`backend/app.py`)
+    - GA 결과 백테스트가 실데이터 성과를 반환하도록 공용 `calculate_factor_performance` 로직을 도입하고, Incubator 세션 보관/경로 추적 기능을 추가했습니다. (`backend/app.py`)
+    - AlphaIncubator 페이지를 챗 패널 + 후보 알파 저장 패널 구조로 재작성하여 생성된 알파를 즉시 저장하고 MCTS 탐색 로그를 조회할 수 있게 했습니다. (`frontend/src/pages/AlphaIncubator.tsx`, `frontend/src/components/AlphaFactory/AlphaCandidatePanel.tsx`, `frontend/src/services/api.ts`, `frontend/src/types/index.ts`)
+    - 대시보드 공용 알파 영역을 요약 카드만 남기고, 하단 알파 목록은 검색·페이지네이션(10개 단위) 박스로 개편했습니다. 개인/공용 알파를 통합 정렬 후 검색할 수 있습니다. (`frontend/src/pages/Dashboard.tsx`)
