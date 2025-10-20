@@ -1,8 +1,8 @@
-# ✅ 알파 풀 노드 시스템 구현 완료
+# ✅ 알파 플랫폼 구현 & 최신 리팩토링 정리
 
 ## 📊 구현 개요
 
-요구사항 분석 문서(SystemReview.md)를 바탕으로 AlphaPool 페이지의 전체 노드 시스템을 완성했습니다.
+요구사항 분석 문서(SystemReview.md)를 바탕으로 AlphaPool 페이지의 전체 노드 시스템을 완성했고, 2025-01-17에는 알파 관리 전반을 확장 가능한 프레임워크로 재구성했습니다.
 
 ---
 
@@ -28,6 +28,27 @@
 - 🤖 **AlphaIncubator** (`/alpha-incubator`) - AI 채팅 시스템으로 알파 아이디어 탐색
 
 ---
+
+## 🚀 2025-01-17 알파 관리 시스템 고도화
+
+### 1. 핵심 모듈
+- `alphas/base.py`: `AlphaDataset`, `AlphaDefinition`, `AlphaExecutionError` 등 공통 데이터 모델
+- `alphas/registry.py`: 공유/개인 알파를 합치는 레지스트리 및 실행 래퍼
+- `alphas/transpiler.py`: 문자열 수식을 안전하게 파이썬 함수로 컴파일(TranspiledAlpha)
+- `alphas/store.py`: 파일 기반 저장소(`database/alpha_store/`) + 레거시 JSON 마이그레이션
+- `alphas/providers/worldquant.py`: WorldQuant 101 기본 알파 자동 등록
+- `alphas/bootstrap.py`: 공유 레지스트리를 초기화하는 진입점
+
+### 2. 데이터 저장 구조
+```
+database/
+└── alpha_store/
+    ├── shared.json             # 공용 알파 정의 (WorldQuant + 커스텀)
+    └── private/
+        └── <username>.json     # 사용자별 개인 알파
+```
+- 최초 실행 시 `database/userdata/user_alphas.json` 내용을 사용자별 JSON으로 이전
+- 레코드에는 `metadata.transpiler_version`, `metadata.python_source`, `metadata.fitness` 등 실행 메타데이터를 포함
 
 ## 🎯 구현된 기능
 
@@ -122,7 +143,7 @@ GA 완료 후 노드 그래프 하단에 표시되는 알파 리스트:
 
 #### 파일: `backend/app.py`
 
-3개의 새로운 API 엔드포인트 추가:
+`AlphaStore` 기반으로 리팩토링되면서 API 응답과 메타데이터가 확장되었습니다:
 
 #### `POST /api/user-alpha/save`
 ```python
@@ -147,9 +168,11 @@ GA 완료 후 노드 그래프 하단에 표시되는 알파 리스트:
 
 **기능**:
 - 세션 기반 사용자 인증
+- 수식 유효성 검증(`compile_expression`) 및 파이썬 소스 버전 관리
 - 고유 ID 자동 생성 (`alpha_{timestamp}_{random_hex}`)
-- 생성 시간 자동 기록
-- `database/userdata/user_alphas.json` 파일에 저장
+- 생성/업데이트 시간 자동 기록
+- `database/alpha_store/private/<username>.json` 저장
+- 저장 후 최신 개인 알파 정의 목록을 함께 반환
 
 #### `GET /api/user-alpha/list`
 ```python
@@ -162,8 +185,9 @@ GA 완료 후 노드 그래프 하단에 표시되는 알파 리스트:
 ```
 
 **기능**:
-- 로그인한 사용자의 알파 목록 조회
-- 파일이 없으면 빈 배열 반환
+- 로그인한 사용자의 개인 알파 목록 조회
+- 공유 레지스트리(WorldQuant 101 + 공유 커스텀) 메타데이터 제공
+- 사용자 파일이 없으면 자동으로 빈 구조 생성
 
 #### `DELETE /api/user-alpha/delete/<alpha_id>`
 ```python
@@ -177,26 +201,29 @@ GA 완료 후 노드 그래프 하단에 표시되는 알파 리스트:
 **기능**:
 - 특정 알파 삭제
 - 소유권 검증 (본인 알파만 삭제 가능)
+- 삭제 이후 최신 개인 알파 목록/정의 반환
 
-#### 데이터 구조: `database/userdata/user_alphas.json`
+#### 데이터 구조: `database/alpha_store/private/<username>.json`
 ```json
-{
-  "users": [
-    {
-      "username": "user1",
-      "alphas": [
-        {
-          "id": "alpha_1705380000_a1b2c3d4",
-          "name": "모멘텀 전략",
-          "expression": "ts_rank(close, 20)",
-          "fitness": 0.85,
-          "created_at": "2025-01-15T12:00:00",
-          "selected": false
-        }
-      ]
+[
+  {
+    "id": "alpha_1705380000_a1b2c3d4",
+    "name": "모멘텀 전략",
+    "expression": "ts_rank(close, 20)",
+    "description": "",
+    "tags": [],
+    "source": "private",
+    "provider": "user-defined",
+    "owner": "user1",
+    "created_at": "2025-01-15T12:00:00Z",
+    "updated_at": "2025-01-15T12:00:00Z",
+    "metadata": {
+      "fitness": 0.85,
+      "transpiler_version": "2025.01",
+      "python_source": "def alpha_user1_alpha_001(dataset): ..."
     }
-  ]
-}
+  }
+]
 ```
 
 ### 5. **노드 간 엣지 동적 스타일링** ✅
@@ -384,6 +411,16 @@ Document/
 - `DEFAULT_METRIC_WEIGHTS`와 사용자 입력 병합 로직을 통해 가중치를 재조정할 수 있도록 했습니다.
 - 토너먼트 선택, 신규성 아카이브, 연령층 기반 재시작을 결합해 탐색 다양성과 수렴 속도를 동시에 확보했습니다.
 - GA 진행 로그에 기간별 IC와 회전율을 출력해 `/api/ga/run` 실행 로그로도 성능 추이를 파악할 수 있습니다.
+
+### AlphaPool 개인 알파 현황 카드 (2025.01.17)
+- AlphaPool 페이지 상단에 공유/개인 알파 보유량을 보여주는 카드와 최근 개인 알파 목록(최대 6개)을 추가했습니다.
+- `/api/user-alpha/list` 응답을 초기 렌더 및 저장 직후 새로고침하여 GA 결과가 저장소에 반영되는지 즉시 확인할 수 있습니다.
+- 저장 성공 메시지는 총 보유 개수를 함께 안내하며, 개인 알파 스토어가 없는 사용자는 안내 문구로 대체됩니다.
+
+### Backtest 실시간 연동 및 UI 강화 (2025.01.17)
+- `/api/backtest`가 사용자 레지스트리에서 공용·개인 알파를 읽어와 누락된 수식을 실시간으로 계산한 뒤 백테스트에 투입합니다.
+- 상태 객체에 진행률과 로그를 축적하고, 작업 ID를 유지해 페이지 이동 후에도 폴링을 재개할 수 있도록 했습니다.
+- 백테스트 페이지는 알파 선택 UI를 그룹화하고, 좌측 진행 카드에 Progress/로그/작업 ID를 노출하며, 레이아웃이 푸터와 겹치지 않도록 정리했습니다.
 
 ### Phase 4: 고급 GA 기능
 - [x] 커스텀 적합도 함수

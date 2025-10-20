@@ -4,7 +4,7 @@ import { theme } from '../../styles/theme';
 
 interface GlassButtonProps {
   children: ReactNode;
-  onClick?: () => void;
+  onClick?: ((event?: any) => void) | ((event?: any) => Promise<void>);
   variant?: 'primary' | 'secondary';
   disabled?: boolean;
   loading?: boolean;

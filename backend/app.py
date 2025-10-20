@@ -17,7 +17,13 @@ import json
 import logging
 import hashlib
 import secrets
+import random
+import textwrap
+import ast
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
+import uuid
+import re
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 import pandas as pd
@@ -27,6 +33,98 @@ import threading
 import time
 from user_database import UserDatabase
 from csv_manager import CSVManager
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+backend_module_path = os.path.join(PROJECT_ROOT, 'backend_module')
+ga_path = os.path.join(PROJECT_ROOT, 'GA_algorithm')
+langchain_path = os.path.join(PROJECT_ROOT, 'Langchain')
+database_path = os.path.join(PROJECT_ROOT, 'database')
+for _path in (backend_module_path, ga_path, langchain_path, database_path):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
+
+from alphas import (
+    AlphaRegistry,
+    AlphaStore,
+    AlphaTranspilerError,
+    build_shared_registry,
+    compile_expression,
+    AlphaDataset,
+)
+from alphas.transpiler import ALPHA_GLOBALS
+
+try:  # pragma: no cover - runtime dependency
+    import ollama  # type: ignore
+    OLLAMA_AVAILABLE = True
+except Exception:  # pragma: no cover - optional dependency
+    ollama = None  # type: ignore
+    OLLAMA_AVAILABLE = False
+    logging.getLogger(__name__).warning(
+        "Ollama 라이브러리를 불러오지 못했습니다. 휴리스틱 응답으로 폴백합니다."
+    )
+
+OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'korean-qwen:latest')
+
+ALPHA_ALLOWED_IDENTIFIERS = set(ALPHA_GLOBALS.keys()) | {
+    'open',
+    'high',
+    'low',
+    'close',
+    'volume',
+    'amount',
+    'returns',
+    'vwap',
+    'data',
+    'meta',
+}
+
+# 흔히 안내할 함수 목록 (문서화용)
+DOCUMENTED_ALPHA_FUNCTIONS = [
+    'adv',
+    'correlation',
+    'covariance',
+    'decay_linear',
+    'delta',
+    'delay',
+    'floor_window',
+    'product',
+    'rank',
+    'safe_clean',
+    'scale',
+    'sma',
+    'stddev',
+    'ts_argmax',
+    'ts_argmin',
+    'ts_max',
+    'ts_min',
+    'ts_rank',
+    'ts_sum',
+    'sign',
+    'log',
+    'exp',
+    'sqrt',
+]
+
+ALPHA_ALLOWED_INPUTS = ['open', 'high', 'low', 'close', 'volume', 'amount', 'returns', 'vwap']
+
+
+def find_unsupported_identifiers(expression: str) -> List[str]:
+    """표현식에 포함된 허용되지 않은 식별자를 찾아 목록으로 반환합니다."""
+    try:
+        tree = ast.parse(expression, mode='eval')
+    except SyntaxError:
+        return []
+
+    invalid: List[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            identifier = node.id
+            if identifier in {'True', 'False', 'None'}:
+                continue
+            if identifier not in ALPHA_ALLOWED_IDENTIFIERS:
+                invalid.append(identifier)
+    return sorted(set(invalid))
 
 def load_real_data_for_ga():
     """GA를 위한 실제 데이터 로드"""
@@ -138,6 +236,519 @@ def create_minimal_dummy_data():
     logger.info(f"더미 GA 데이터 생성: {len(dates)}일, {len(tickers)}종목")
     return df_data
 
+
+def prepare_alpha_dataset_from_price(ticker_df: pd.DataFrame) -> AlphaDataset:
+    """
+    백테스트용 가격 데이터를 AlphaDataset으로 변환합니다.
+    ticker_df는 단일 종목 데이터여야 하며 Date 컬럼을 포함해야 합니다.
+    """
+    required = {'Date', 'Open', 'High', 'Low', 'Close', 'Volume'}
+    missing = required.difference(ticker_df.columns)
+    if missing:
+        raise ValueError(f"가격 데이터에 필요한 컬럼이 없습니다: {', '.join(missing)}")
+
+    ticker_df = ticker_df.sort_values('Date')
+    alpha_frame = pd.DataFrame(index=ticker_df['Date'])
+    alpha_frame['S_DQ_OPEN'] = ticker_df['Open'].values
+    alpha_frame['S_DQ_HIGH'] = ticker_df['High'].values
+    alpha_frame['S_DQ_LOW'] = ticker_df['Low'].values
+    alpha_frame['S_DQ_CLOSE'] = ticker_df['Close'].values
+    alpha_frame['S_DQ_VOLUME'] = ticker_df['Volume'].values
+    alpha_frame['S_DQ_AMOUNT'] = ticker_df['Close'].values * ticker_df['Volume'].values
+    alpha_frame['S_DQ_PCTCHANGE'] = alpha_frame['S_DQ_CLOSE'].pct_change().fillna(0)
+    return AlphaDataset(alpha_frame)
+
+
+def calculate_factor_performance(
+    merged_data: pd.DataFrame,
+    factor_col: str,
+    *,
+    quantile: float,
+    transaction_cost: float,
+    rebalancing_frequency: str,
+    top_count: Optional[int] = None,
+) -> Dict[str, Any]:
+    """리밸런싱 전략 기반 팩터 성과 지표를 계산합니다."""
+
+    if merged_data is None or merged_data.empty:
+        raise ValueError("팩터 성과를 계산할 데이터가 없습니다")
+
+    required_cols = {'Date', 'Ticker', 'Close', factor_col}
+    missing_cols = required_cols.difference(merged_data.columns)
+    if missing_cols:
+        raise ValueError(f"필수 컬럼이 부족합니다: {', '.join(sorted(missing_cols))}")
+
+    working_df = merged_data[['Date', 'Ticker', 'Close', factor_col]].dropna().copy()
+    if working_df.empty:
+        raise ValueError("유효한 팩터 데이터가 없습니다")
+
+    working_df['Date'] = pd.to_datetime(working_df['Date'])
+    working_df = working_df.sort_values(['Date', 'Ticker']).reset_index(drop=True)
+
+    if rebalancing_frequency == 'daily':
+        rebalance_dates = sorted(working_df['Date'].unique())
+    elif rebalancing_frequency == 'weekly':
+        rebalance_dates = sorted(working_df[working_df['Date'].dt.weekday == 0]['Date'].unique())
+    elif rebalancing_frequency == 'monthly':
+        rebalance_dates = sorted(working_df[working_df['Date'].dt.day == 1]['Date'].unique())
+    elif rebalancing_frequency == 'quarterly':
+        quarterly_months = [1, 4, 7, 10]
+        rebalance_dates = sorted(
+            working_df[
+                (working_df['Date'].dt.month.isin(quarterly_months))
+                & (working_df['Date'].dt.day == 1)
+            ]['Date'].unique()
+        )
+    else:
+        rebalance_dates = sorted(working_df['Date'].unique())
+
+    if len(rebalance_dates) < 2:
+        raise ValueError("리밸런싱 날짜가 부족합니다")
+
+    factor_returns: List[Dict[str, Any]] = []
+    ic_values: List[float] = []
+
+    for idx, rebalance_date in enumerate(rebalance_dates[:-1]):
+        next_rebalance_date = rebalance_dates[idx + 1]
+
+        period_df = working_df[working_df['Date'] == rebalance_date].copy()
+        next_df = working_df[working_df['Date'] == next_rebalance_date][['Ticker', 'Close']].rename(
+            columns={'Close': 'Close_future'}
+        )
+
+        if len(period_df) < 5 or next_df.empty:
+            continue
+
+        period_df = period_df.merge(next_df, on='Ticker', how='inner')
+        if len(period_df) < 5:
+            continue
+
+        period_df['HoldingReturn'] = period_df['Close_future'] / period_df['Close'] - 1
+
+        valid = period_df.dropna(subset=[factor_col, 'HoldingReturn'])
+        if valid.empty:
+            continue
+
+        period_df = period_df.sort_values([factor_col, 'Ticker'], ascending=[False, True])
+        total_names = len(period_df)
+
+        if top_count is not None:
+            top_n = max(1, min(top_count, total_names))
+            bottom_n = max(1, min(top_count, total_names))
+        else:
+            top_n = max(1, int(total_names * quantile))
+            bottom_n = max(1, int(total_names * quantile))
+
+        long_portfolio = period_df.head(top_n)
+        short_portfolio = period_df.tail(bottom_n)
+
+        long_return = long_portfolio['HoldingReturn'].mean()
+        short_return = short_portfolio['HoldingReturn'].mean()
+        factor_return = long_return - short_return - (2 * transaction_cost)
+
+        holding_days = max(1, len(pd.bdate_range(rebalance_date, next_rebalance_date)) - 1)
+
+        factor_returns.append(
+            {
+                'Date': rebalance_date,
+                'FactorReturn': factor_return,
+                'HoldingDays': holding_days,
+            }
+        )
+
+        if len(valid) > 5:
+            ic = valid[factor_col].corr(valid['HoldingReturn'])
+            if not np.isnan(ic):
+                ic_values.append(float(ic))
+
+    if not factor_returns:
+        raise ValueError("팩터 수익률 데이터를 계산할 수 없습니다")
+
+    factor_returns_df = pd.DataFrame(factor_returns).sort_values('Date').reset_index(drop=True)
+    returns = factor_returns_df['FactorReturn'].values
+    holding_periods = factor_returns_df['HoldingDays'].values
+
+    nav = np.concatenate(([1.0], np.cumprod(1 + returns)))
+
+    cumulative_returns: List[Dict[str, Any]] = []
+    if not factor_returns_df.empty:
+        first_date = factor_returns_df['Date'].iloc[0]
+        cumulative_returns.append({'date': first_date.strftime('%Y-%m-%d'), 'value': 0.0})
+        cumulative_returns.extend(
+            {
+                'date': date.strftime('%Y-%m-%d'),
+                'value': float(nav_val - 1.0),
+            }
+            for date, nav_val in zip(factor_returns_df['Date'], nav[1:])
+        )
+
+    cumulative_days = np.cumsum(holding_periods) if len(holding_periods) else np.array([])
+    rolling_cagr = []
+    if len(cumulative_days) > 0:
+        with np.errstate(divide='ignore', invalid='ignore'):
+            rolling_values = np.power(np.maximum(nav[1:], 1e-12), 252 / cumulative_days) - 1
+        rolling_cagr = [
+            {
+                'date': date.strftime('%Y-%m-%d'),
+                'value': float(val),
+            }
+            for date, val in zip(factor_returns_df['Date'], rolling_values)
+            if np.isfinite(val)
+        ]
+
+    total_return = float(nav[-1] - 1) if len(nav) else 0.0
+    total_holding_days = float(cumulative_days[-1]) if len(cumulative_days) else 0.0
+    years = total_holding_days / 252 if total_holding_days else 0.0
+    cagr = (nav[-1]) ** (1 / years) - 1 if years > 0 and nav[-1] > 0 else 0.0
+
+    periods_per_year = 0.0
+    sharpe = 0.0
+    sortino = 0.0
+    volatility = 0.0
+
+    if len(returns) > 0:
+        return_std = returns.std(ddof=0)
+        mean_return = returns.mean()
+        avg_holding = holding_periods.mean() if len(holding_periods) else 0.0
+        periods_per_year = (252 / avg_holding) if avg_holding else 0.0
+
+        if return_std > 0 and periods_per_year > 0:
+            sharpe = mean_return / return_std * np.sqrt(periods_per_year)
+
+        downside = returns[returns < 0]
+        downside_std = downside.std(ddof=0) if len(downside) else 0.0
+        if downside_std > 0 and periods_per_year > 0:
+            sortino = mean_return / downside_std * np.sqrt(periods_per_year)
+
+        if return_std > 0 and periods_per_year > 0:
+            volatility = return_std * np.sqrt(periods_per_year)
+
+        win_rate = float((returns > 0).mean())
+    else:
+        win_rate = 0.0
+
+    cumulative_curve = nav
+    running_max = np.maximum.accumulate(cumulative_curve)
+    drawdown = (cumulative_curve - running_max) / running_max
+    max_drawdown = float(drawdown.min()) if len(drawdown) else 0.0
+
+    ic_mean = float(np.mean(ic_values)) if ic_values else 0.0
+
+    return {
+        'cagr': float(cagr),
+        'sharpe_ratio': float(sharpe),
+        'sortino_ratio': float(sortino),
+        'max_drawdown': max_drawdown,
+        'ic_mean': ic_mean,
+        'win_rate': win_rate,
+        'volatility': float(volatility),
+        'total_return': total_return,
+        'cumulative_returns': cumulative_returns,
+        'cagr_series': rolling_cagr,
+    }
+
+
+def _clean_prompt(text: str) -> str:
+    """Collapse whitespace in prompts for consistent LLM calls."""
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def call_local_llm(messages: List[Dict[str, str]], *, temperature: float = 0.4) -> Tuple[str, str]:
+    """
+    korean-qwen:latest 모델을 우선 사용하여 LLM 응답을 생성합니다.
+    Ollama가 설치되어 있지 않은 경우 규칙 기반 메시지를 반환합니다.
+    """
+    cleaned_messages = [
+        {
+            'role': msg.get('role', 'user'),
+            'content': _clean_prompt(msg.get('content', '')) if isinstance(msg, dict) else str(msg)
+        }
+        for msg in messages
+    ]
+
+    if OLLAMA_AVAILABLE:
+        try:
+            response = ollama.chat(  # type: ignore[attr-defined]
+                model=OLLAMA_MODEL,
+                messages=cleaned_messages,
+                options={
+                'temperature': temperature,
+                'num_predict': 256,
+                'num_ctx': 8192,
+                'top_p': 0.9,
+            },
+        )
+            return response.get('message', {}).get('content', '').strip(), 'ollama'
+        except Exception as exc:  # pragma: no cover - runtime dependency
+            logger.warning("Ollama 호출 실패, 규칙 기반 응답으로 대체합니다: %s", exc)
+
+    # 규칙 기반 폴백
+    last_user_message = cleaned_messages[-1]['content'] if cleaned_messages else ''
+    return generate_rule_based_response(last_user_message), 'heuristic'
+
+
+def generate_rule_based_response(user_message: str) -> str:
+    """Ollama가 없을 때 사용할 간단한 답변 생성기."""
+    templates = [
+        "요청하신 내용을 정리했습니다:\n1. 핵심 목표를 명확히 정의합니다.\n2. 필요한 데이터 소스를 점검합니다.\n3. 리스크 관리 지표를 함께 살펴봅니다.",
+        "해당 요구사항을 기준으로 아이디어를 구성해 보았습니다. 변동성, 거래량, 모멘텀 요소를 균형있게 결합하는 알파를 추천드립니다.",
+        "이 플랫폼은 알파 생성과 백테스트에 초점을 맞추고 있습니다. 관련 지표나 전략 질문을 주시면 더 구체적으로 도와드릴 수 있습니다.",
+    ]
+
+    if '프로그램' in user_message or '플랫폼' in user_message:
+        return "이 프로그램은 LangChain과 GA를 활용해 알파를 탐색합니다. 구체적인 알파 조건이나 전략을 말씀해주시면 더 정밀한 제안을 드릴 수 있습니다."
+
+    if any(keyword in user_message.lower() for keyword in ['vol', '변동성', 'volume', '거래량']):
+        return (
+            "변동성과 거래량을 함께 고려한 전략을 준비해 보았습니다. "
+            "예: rank(stddev(log(return), 20) * volume) 형태로 변동성에 거래량 가중치를 부여할 수 있습니다."
+        )
+
+    if any(keyword in user_message.lower() for keyword in ['hello', 'hi', '안녕']):
+        return "안녕하세요! 알파 생성이나 백테스트와 관련된 질문이 있다면 말씀해 주세요."
+
+    return random.choice(templates)
+
+
+def score_alpha_expression(expression: str, rationale: str, goal: str) -> float:
+    """간단한 휴리스틱으로 알파 표현식의 품질을 점수화합니다."""
+    expression_lower = expression.lower()
+    rationale_lower = rationale.lower()
+    goal_lower = goal.lower()
+
+    score = 0.4  # 기본 점수
+
+    keyword_weights = [
+        (['vol', 'stddev', 'variance', '변동'], 0.25),
+        (['volume', '거래량'], 0.2),
+        (['rank', 'ts_rank'], 0.1),
+        (['correlation', 'corr'], 0.1),
+        (['momentum', '모멘텀'], 0.08),
+        (['reversal', '반전'], 0.05),
+    ]
+
+    for keywords, weight in keyword_weights:
+        if any(keyword in expression_lower for keyword in keywords):
+            score += weight
+        if any(keyword in rationale_lower for keyword in keywords):
+            score += weight / 2
+        if any(keyword in goal_lower for keyword in keywords):
+            score += weight / 2
+
+    length_penalty = min(len(expression) / 200, 0.3)
+    score += 0.2 - length_penalty
+
+    score = max(0.05, min(score, 1.0))
+    return round(score, 4)
+
+
+def parse_llm_alpha_payload(raw_text: str) -> Tuple[str, str]:
+    """
+    LLM 응답에서 알파 수식과 설명을 추출합니다.
+    JSON 형식이면 파싱하고, 아니면 간단한 규칙으로 구분합니다.
+    """
+    raw_text = raw_text.strip()
+
+    try:
+        payload = json.loads(raw_text)
+        if isinstance(payload, dict):
+            expression = payload.get('expression') or payload.get('alpha') or ''
+            rationale = payload.get('rationale') or payload.get('explanation') or ''
+            if expression:
+                return expression.strip(), rationale.strip()
+    except json.JSONDecodeError:
+        pass
+
+    # 코드 블록 추출
+    code_match = re.search(r"```(?:python|alpha)?\s*(.*?)```", raw_text, re.DOTALL)
+    if code_match:
+        expression_candidate = code_match.group(1).strip()
+    else:
+        # 첫 줄이 수식으로 보이면 사용
+        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        expression_candidate = lines[0] if lines else raw_text
+
+    rationale = raw_text.replace(expression_candidate, '').strip()
+    return expression_candidate, rationale
+
+
+def run_mcts_search(goal: str, *, simulations: int = 6) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    간단한 MCTS 모사: LLM을 활용해 후보 알파를 탐색하고 휴리스틱 점수를 부여합니다.
+    simulations 값을 조정해 탐색 깊이를 제어할 수 있습니다.
+    """
+    candidates: List[Dict[str, Any]] = []
+    trace: List[Dict[str, Any]] = []
+
+    supported_functions_text = ", ".join(DOCUMENTED_ALPHA_FUNCTIONS)
+    supported_inputs_text = ", ".join(ALPHA_ALLOWED_INPUTS)
+
+    system_prompt = textwrap.dedent(
+        f"""
+        당신은 퀀트 리서치 파트너입니다. 사용자의 요구에 맞춘 알파 팩터 수식을 제안해야 합니다.
+        반드시 아래 제약을 지키십시오.
+        - 표현식은 지원 함수만 사용합니다: {supported_functions_text}.
+          (필요 시 numpy는 `np`, pandas는 `pd` 네임스페이스로 접근합니다.)
+        - 입력 시계열 별칭은 {supported_inputs_text} 만 사용할 수 있습니다.
+        - 이외 식별자(예: volume_adj_mavg, ts_avg, ema 등)는 사용하지 않습니다.
+        응답은 JSON 형식으로 작성하세요. 예시는 다음과 같습니다.
+        {{
+          "name": "...",
+          "expression": "...",
+          "rationale": "..."
+        }}
+        수식은 WorldQuant 스타일 함수(ts_rank, ts_sum 등)를 적극 활용하십시오.
+        """
+    ).strip()
+
+    last_provider = 'unknown'
+
+    for iteration in range(1, simulations + 1):
+        prompt = textwrap.dedent(
+            f"""
+            사용자 목표: {goal}
+            요구사항에 맞는 새로운 알파 수식을 JSON 형식으로 제안해 주세요.
+            수식은 간결하게 표현하고, rationale에는 해당 수식의 직관을 설명해 주세요.
+            iteration: {iteration}
+            """
+        )
+
+        llm_messages = [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': prompt},
+        ]
+
+        llm_output, provider = call_local_llm(llm_messages, temperature=0.3)
+        last_provider = provider
+        expression, rationale = parse_llm_alpha_payload(llm_output)
+
+        if not expression:
+            if provider == 'ollama':
+                # 한 번 더 재시도
+                retry_prompt = prompt + "\n반드시 JSON 형식으로 응답하세요."
+                llm_output, provider = call_local_llm(
+                    [
+                        {'role': 'system', 'content': system_prompt},
+                        {'role': 'user', 'content': retry_prompt},
+                    ],
+                    temperature=0.2,
+                )
+                last_provider = provider
+                expression, rationale = parse_llm_alpha_payload(llm_output)
+            if not expression:
+                trace.append({
+                    'iteration': iteration,
+                    'prompt': prompt,
+                    'raw_response': llm_output,
+                    'scored_expression': '',
+                    'score': 0.0,
+                })
+            continue
+
+        unsupported = find_unsupported_identifiers(expression)
+        if unsupported:
+            reason = f"지원되지 않는 함수/식별자 사용: {', '.join(unsupported)}"
+            trace.append({
+                'iteration': iteration,
+                'prompt': prompt,
+                'raw_response': llm_output,
+                'scored_expression': '',
+                'score': 0.0,
+                'reason': reason,
+            })
+            continue
+
+        score = score_alpha_expression(expression, rationale, goal)
+        candidate = {
+            'name': f'Alpha Candidate {iteration}',
+            'expression': expression,
+            'rationale': rationale or 'LLM이 제시한 근거가 없습니다.',
+            'score': score,
+            'path': [
+                'root',
+                'explore_volatility' if 'vol' in expression.lower() else 'explore_momentum',
+                f'candidate_{iteration}'
+            ],
+        }
+
+        trace.append({
+            'iteration': iteration,
+            'prompt': prompt,
+            'raw_response': llm_output,
+            'scored_expression': expression,
+            'score': score,
+        })
+
+        # 중복 수식은 스킵
+        if any(existing['expression'] == expression for existing in candidates):
+            continue
+
+        candidates.append(candidate)
+
+    candidates.sort(key=lambda item: item['score'], reverse=True)
+
+    for index, candidate in enumerate(candidates, start=1):
+        candidate['id'] = f'candidate_{index}'
+        candidate['name'] = candidate['name'] or f'Alpha Candidate {index}'
+
+    return candidates, trace, last_provider
+
+
+def detect_intent(message: str, explicit_intent: Optional[str] = None) -> str:
+    """사용자 입력을 기반으로 의도를 감지합니다."""
+    if explicit_intent:
+        return explicit_intent
+
+    lowered = message.lower()
+    if any(keyword in lowered for keyword in ['알파', '수식', 'factor', '전략', 'generate']):
+        return 'generate'
+    if any(keyword in lowered for keyword in ['프로그램', '플랫폼', '백테스트', 'ga', 'ga']):
+        return 'chat'
+    return 'off_topic'
+
+
+def compute_factor_series_from_registry(factor_name: str,
+                                        registry: AlphaRegistry,
+                                        price_data: pd.DataFrame) -> pd.DataFrame:
+    """
+    AlphaRegistry 정의를 사용해 팩터 값을 계산합니다.
+    반환값은 Date, Ticker, factor_name 컬럼을 가진 DataFrame입니다.
+    """
+    if factor_name not in registry:
+        raise KeyError(f"등록되지 않은 알파: {factor_name}")
+
+    definition = registry.get(factor_name)
+    frames: List[pd.DataFrame] = []
+
+    for ticker, ticker_df in price_data.groupby('Ticker'):
+        dataset = prepare_alpha_dataset_from_price(ticker_df)
+        try:
+            factor_values = definition.compute(dataset)
+        except Exception as exc:
+            raise RuntimeError(f"{factor_name} 계산 실패 ({ticker}): {exc}") from exc
+
+        if isinstance(factor_values, pd.DataFrame):
+            if factor_values.shape[1] > 1:
+                factor_values = factor_values.iloc[:, 0]
+            else:
+                factor_values = factor_values.iloc[:, 0]
+        elif not isinstance(factor_values, pd.Series):
+            factor_values = pd.Series(factor_values, index=dataset.frame.index)
+
+        factor_values = factor_values.reindex(dataset.frame.index).ffill().bfill()
+
+        frames.append(pd.DataFrame({
+            'Date': dataset.frame.index,
+            'Ticker': ticker,
+            factor_name: factor_values.values
+        }))
+
+    if not frames:
+        raise RuntimeError(f"{factor_name} 팩터 계산 결과가 없습니다.")
+
+    result = pd.concat(frames, ignore_index=True)
+    return result
+
 def run_ga_alternative(df_data, max_depth, population_size, generations):
     """run_ga.py 방식의 대안 GA 실행"""
     try:
@@ -217,12 +828,13 @@ def generate_meaningful_dummy_alphas(count=10):
     return selected[:count]
 
 # 프로젝트 루트 디렉토리 설정
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, PROJECT_ROOT)
-sys.path.insert(0, os.path.join(PROJECT_ROOT, 'backend_module'))
-sys.path.insert(0, os.path.join(PROJECT_ROOT, 'GA_algorithm'))
-sys.path.insert(0, os.path.join(PROJECT_ROOT, 'Langchain'))
-sys.path.insert(0, os.path.join(PROJECT_ROOT, 'database'))
+
+# Alpha 저장소 및 공용 레지스트리 초기화
+ALPHA_STORE = AlphaStore(
+    os.path.join(PROJECT_ROOT, 'database', 'alpha_store'),
+    legacy_user_file=os.path.join(PROJECT_ROOT, 'database', 'userdata', 'user_alphas.json')
+)
+SHARED_ALPHA_REGISTRY = build_shared_registry(ALPHA_STORE)
 
 # Flask 앱 초기화
 app = Flask(__name__)
@@ -243,8 +855,61 @@ csv_manager = None
 
 # 작업 상태 추적을 위한 딕셔너리
 task_status = {}
-backtest_status = {}
-ga_status = {}
+backtest_status: Dict[str, Dict[str, Any]] = {}
+ga_status: Dict[str, Dict[str, Any]] = {}
+incubator_sessions: Dict[str, Dict[str, Any]] = {}
+
+
+def get_alpha_registry(username: Optional[str] = None) -> AlphaRegistry:
+    """Return a registry that merges shared alphas with the user's private ones."""
+    registry = SHARED_ALPHA_REGISTRY.clone()
+    if username:
+        try:
+            registry.extend(ALPHA_STORE.load_private_definitions(username), overwrite=True)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning("사용자 알파 로드 실패 (%s): %s", username, exc)
+    return registry
+
+
+def serialize_alpha_definition(definition) -> Dict[str, Any]:
+    """Convert an AlphaDefinition into a serializable dict."""
+    payload = definition.as_dict()
+    payload["name"] = definition.name
+    metadata = dict(payload.get("metadata", {}))
+    payload["metadata"] = metadata
+    payload["id"] = metadata.get("id") or definition.name
+    payload["expression"] = metadata.get("expression")
+    payload["created_at"] = metadata.get("created_at")
+    payload["updated_at"] = metadata.get("updated_at")
+    payload["owner"] = metadata.get("owner") or payload.get("owner")
+    payload["tags"] = list(payload.get("tags", []))
+    return payload
+
+
+def build_user_alpha_payload(username: str) -> Dict[str, Any]:
+    """Assemble shared/private alpha data for responses."""
+    stored_alphas = [alpha.to_dict() for alpha in ALPHA_STORE.list_private(username)]
+
+    registry = get_alpha_registry(username)
+    private_definitions = registry.list(owner=username)
+    shared_definitions = SHARED_ALPHA_REGISTRY.list(source="shared")
+
+    private_payload = [serialize_alpha_definition(defn) for defn in private_definitions]
+    shared_payload = [serialize_alpha_definition(defn) for defn in shared_definitions]
+
+    summary = {
+        "shared_count": len(shared_payload),
+        "private_count": len(private_payload),
+        "total_count": len(shared_payload) + len(private_payload),
+        "registry_size": len(registry),
+    }
+
+    return {
+        "stored_alphas": stored_alphas,
+        "private_alphas": private_payload,
+        "shared_alphas": shared_payload,
+        "summary": summary,
+    }
 
 # 사용자 인증 관련 함수들
 def load_users():
@@ -390,21 +1055,21 @@ def initialize_systems():
         
         # Langchain Agent - 더 견고한 import
         try:
-            from simple_agent import SimpleQuantAgent
-        except ImportError:
-            try:
-                sys.path.append(os.path.join(PROJECT_ROOT, 'Langchain'))
-                from simple_agent import SimpleQuantAgent
-            except ImportError:
-                # 에이전트를 간단한 더미로 대체
-                class DummyAgent:
-                    def process_message(self, message):
-                        return f"죄송합니다. AI 에이전트 시스템이 현재 사용할 수 없습니다. 메시지: {message}"
-                langchain_agent = DummyAgent()
-                logger.warning("⚠️ Langchain 에이전트를 더미로 초기화 (실제 모듈 로드 실패)")
-        else:
-            langchain_agent = SimpleQuantAgent()
-            logger.info("✅ Langchain 에이전트 초기화 완료")
+            # Langchain 폴더 경로를 sys.path에 추가
+            langchain_path = os.path.join(PROJECT_ROOT, 'Langchain')
+            if langchain_path not in sys.path:
+                sys.path.insert(0, langchain_path)
+
+            # simple_agent.py에서 QuickQuantAssistant 클래스를 import
+            from simple_agent import QuickQuantAssistant
+            langchain_agent = QuickQuantAssistant(use_llama=True)
+            logger.info("✅ QuickQuantLangchain 에이전트 초기화 완료")
+        except Exception as e:
+            class DummyAgent:
+                def process_message(self, message):
+                    return f"죄송합니다. AI 에이전트 시스템이 현재 사용할 수 없습니다. 메시지: {message}"
+            langchain_agent = DummyAgent()
+            logger.warning(f"⚠️ Langchain 에이전트를 더미로 초기화 (실제 모듈 로드 실패: {e})")
         
         # Database Manager - 더 견고한 import
         try:
@@ -595,9 +1260,8 @@ def run_backtest():
         transaction_cost = data.get('transaction_cost', 0.001)
         quantile = data.get('quantile', 0.1)
         max_factors = data.get('max_factors', len(factors))
-        
-        if not backtest_system:
-            return jsonify({'error': '백테스트 시스템이 초기화되지 않았습니다'}), 500
+        username = session.get('username')
+        registry = get_alpha_registry(username)
         
         # 작업 ID 생성
         task_id = f"backtest_{int(time.time())}"
@@ -616,242 +1280,259 @@ def run_backtest():
             }
         }
         
+        def append_status(progress: Optional[int] = None, log: Optional[str] = None):
+            status = backtest_status.get(task_id)
+            if not status:
+                return
+            if progress is not None:
+                status['progress'] = max(0, min(100, progress))
+            if log:
+                logs = status.setdefault('logs', [])
+                timestamp = datetime.now().strftime('%H:%M:%S')
+                logs.append(f"{timestamp} · {log}")
+                if len(logs) > 50:
+                    logs.pop(0)
+
         def run_backtest_async():
             try:
                 logger.info(f"백테스트 시작: {task_id}")
-                backtest_status[task_id]['progress'] = 10
-                
-                # 백테스트 실행 (올바른 메서드 사용)
-                backtest_status[task_id]['progress'] = 30
-                
-                # 백테스트 설정 업데이트
-                backtest_system.config['backtest_settings']['max_factors'] = max_factors
-                backtest_system.config['backtest_settings']['transaction_cost'] = transaction_cost
-                backtest_system.config['backtest_settings']['quantile'] = quantile
-                backtest_system.config['backtest_settings']['rebalancing_frequency'] = rebalancing_frequency
-                
-                logger.info(f"백테스트 설정: 팩터 {len(factors)}개, 리밸런싱: {rebalancing_frequency}, 거래비용: {transaction_cost}")
-                
-                results = backtest_system.run_backtest(
-                    start_date=start_date,
-                    end_date=end_date,
-                    max_factors=max_factors,
-                    quantile=quantile,
-                    transaction_cost=transaction_cost,
-                    rebalancing_frequencies=[rebalancing_frequency]
-                )
-                
-                backtest_status[task_id]['progress'] = 70
-                
-                # 실제 백테스트 결과 사용 (더미 데이터 제거)
-                if hasattr(results, 'items') and results:
-                    filtered_results = {}
-                    for factor in factors:
-                        for k, v in results.items():
-                            if factor in k:
-                                filtered_results[factor] = v
-                                break
-                        if factor not in filtered_results:
-                            # 팩터를 찾지 못한 경우 실제 백테스트 실행
-                            logger.info(f"팩터 {factor}에 대한 실제 백테스트 실행")
-                            try:
-                                # 포트폴리오 API와 동일한 로직 사용
-                                import pandas as pd
-                                import numpy as np
-                                
-                                # 데이터 로드
-                                price_file = 'database/sp500_interpolated.csv'
-                                alpha_file = 'database/sp500_with_alphas.csv'
-                                
-                                price_cols = ['Date', 'Ticker', 'Close']
-                                alpha_cols = ['Date', 'Ticker', factor]
-                                
-                                price_data = pd.read_csv(price_file, usecols=price_cols, parse_dates=['Date'])
-                                alpha_data = pd.read_csv(alpha_file, usecols=alpha_cols, parse_dates=['Date'])
-                                
-                                # 날짜 필터링
-                                start_date_dt = pd.to_datetime(start_date)
-                                end_date_dt = pd.to_datetime(end_date)
-                                
-                                price_data = price_data[(price_data['Date'] >= start_date_dt) & (price_data['Date'] <= end_date_dt)]
-                                alpha_data = alpha_data[(alpha_data['Date'] >= start_date_dt) & (alpha_data['Date'] <= end_date_dt)]
-                                
-                                # 데이터 정렬
-                                price_data = price_data.sort_values(['Date', 'Ticker']).reset_index(drop=True)
-                                alpha_data = alpha_data.sort_values(['Date', 'Ticker']).reset_index(drop=True)
-                                
-                                # 데이터 병합
-                                merged_data = pd.merge(price_data, alpha_data, on=['Date', 'Ticker'], how='inner')
-                                
-                                if len(merged_data) == 0:
-                                    raise Exception("병합된 데이터가 없습니다")
-                                
-                                # NextDayReturn 계산
-                                merged_data = merged_data.sort_values(['Ticker', 'Date'])
-                                merged_data['NextDayReturn'] = merged_data.groupby('Ticker')['Close'].shift(-1) / merged_data['Close'] - 1
-                                
-                                # 결측값 제거
-                                merged_data = merged_data.dropna(subset=[factor, 'NextDayReturn'])
-                                
-                                if len(merged_data) == 0:
-                                    raise Exception("유효한 데이터가 없습니다")
-                                
-                                # 리밸런싱 날짜 필터링
-                                if rebalancing_frequency == 'daily':
-                                    rebalance_dates = sorted(merged_data['Date'].unique())
-                                elif rebalancing_frequency == 'weekly':
-                                    rebalance_dates = sorted(merged_data[merged_data['Date'].dt.weekday == 0]['Date'].unique())
-                                elif rebalancing_frequency == 'monthly':
-                                    rebalance_dates = sorted(merged_data[merged_data['Date'].dt.day == 1]['Date'].unique())
-                                elif rebalancing_frequency == 'quarterly':
-                                    quarterly_months = [1, 4, 7, 10]
-                                    rebalance_dates = sorted(merged_data[
-                                        (merged_data['Date'].dt.month.isin(quarterly_months)) & 
-                                        (merged_data['Date'].dt.day == 1)
-                                    ]['Date'].unique())
-                                else:
-                                    rebalance_dates = sorted(merged_data['Date'].unique())
-                                
-                                # 리밸런싱 날짜별 팩터 수익률 계산
-                                factor_returns = []
-                                for rebalance_date in sorted(rebalance_dates):
-                                    group = merged_data[merged_data['Date'] == rebalance_date]
-                                    
-                                    if len(group) < 10:
-                                        continue
-                                    
-                                    # 팩터 값으로 정렬
-                                    group = group.sort_values([factor, 'Ticker'], ascending=[False, True])
-                                    
-                                    # 상위/하위 분위수 계산
-                                    n_stocks = len(group)
-                                    top_n = max(1, int(n_stocks * quantile))
-                                    bottom_n = max(1, int(n_stocks * quantile))
-                                    
-                                    # 롱/숏 포트폴리오 구성
-                                    long_portfolio = group.head(top_n)
-                                    short_portfolio = group.tail(bottom_n)
-                                    
-                                    # 수익률 계산
-                                    long_return = long_portfolio['NextDayReturn'].mean()
-                                    short_return = short_portfolio['NextDayReturn'].mean()
-                                    
-                                    # 롱-숏 수익률 (거래비용 차감)
-                                    factor_return = long_return - short_return - (2 * transaction_cost)
-                                    
-                                    factor_returns.append({
-                                        'Date': rebalance_date,
-                                        'FactorReturn': factor_return
-                                    })
-                                
-                                if not factor_returns:
-                                    raise Exception("팩터 수익률 데이터가 없습니다")
-                                
-                                # 결과 데이터프레임 생성
-                                factor_returns_df = pd.DataFrame(factor_returns)
-                                factor_returns_df = factor_returns_df.sort_values('Date').reset_index(drop=True)
-                                
-                                # 성능 지표 계산
-                                returns = factor_returns_df['FactorReturn'].values
-                                
-                                # CAGR 계산
-                                total_return = (1 + returns).prod() - 1
-                                days = len(returns)
-                                years = days / 252
-                                cagr = (1 + total_return) ** (1 / years) - 1 if years > 0 else 0
-                                
-                                # Sharpe Ratio 계산
-                                sharpe = returns.mean() / returns.std() * np.sqrt(252) if returns.std() > 0 else 0
-                                
-                                # Win Rate 계산
-                                win_rate = (returns > 0).mean()
-                                
-                                # MDD 계산
-                                cumulative_curve = (1 + returns).cumprod()
-                                running_max = np.maximum.accumulate(cumulative_curve)
-                                drawdown = (cumulative_curve - running_max) / running_max
-                                max_drawdown = drawdown.min()
-                                
-                                # IC 계산
-                                ic_values = []
-                                for date, group in merged_data.groupby('Date'):
-                                    if len(group) < 10:
-                                        continue
-                                    valid_data = group.dropna(subset=[factor, 'NextDayReturn'])
-                                    if len(valid_data) > 5:
-                                        ic = valid_data[factor].corr(valid_data['NextDayReturn'])
-                                        if not np.isnan(ic):
-                                            ic_values.append(ic)
-                                ic_mean = np.mean(ic_values) if ic_values else 0
-                                
-                                # 변동성 계산
-                                volatility = returns.std() * np.sqrt(252)
-                                
-                                filtered_results[factor] = {
-                                    'cagr': float(cagr),
-                                    'sharpe_ratio': float(sharpe),
-                                    'max_drawdown': float(max_drawdown),
-                                    'ic_mean': float(ic_mean),
-                                    'win_rate': float(win_rate),
-                                    'volatility': float(volatility)
-                                }
-                                
-                                logger.info(f"팩터 {factor} 실제 백테스트 결과: CAGR={cagr:.4f}, Sharpe={sharpe:.4f}")
-                                
-                            except Exception as e:
-                                logger.error(f"팩터 {factor} 백테스트 실패: {e}")
-                                # 오류 발생 시 기본값 사용 (랜덤이 아닌 고정값)
-                                filtered_results[factor] = {
-                                    'cagr': 0.0,
-                                    'sharpe_ratio': 0.0,
-                                    'max_drawdown': 0.0,
-                                    'ic_mean': 0.0,
-                                    'win_rate': 0.0,
-                                    'volatility': 0.0
-                                }
+                append_status(progress=10, log="백테스트 작업을 시작했습니다.")
+
+                price_file = os.path.join(PROJECT_ROOT, 'database', 'sp500_interpolated.csv')
+                alpha_file = os.path.join(PROJECT_ROOT, 'database', 'sp500_with_alphas.csv')
+
+                price_cols = ['Date', 'Ticker', 'Open', 'High', 'Low', 'Close', 'Volume']
+                append_status(progress=15, log="가격 데이터를 불러오는 중입니다.")
+                price_data = pd.read_csv(price_file, usecols=price_cols, parse_dates=['Date'])
+
+                start_date_dt = pd.to_datetime(start_date)
+                end_date_dt = pd.to_datetime(end_date)
+                price_data = price_data[(price_data['Date'] >= start_date_dt) & (price_data['Date'] <= end_date_dt)]
+                if price_data.empty:
+                    raise RuntimeError('선택한 기간에 대한 가격 데이터가 없습니다.')
+
+                append_status(progress=25, log="사전 계산된 팩터를 확인합니다.")
+                try:
+                    alpha_columns = pd.read_csv(alpha_file, nrows=0).columns.tolist()
+                except FileNotFoundError:
+                    alpha_columns = []
+
+                base_cols = ['Date', 'Ticker']
+                existing_factors = [f for f in factors if f in alpha_columns]
+                if existing_factors:
+                    usecols = base_cols + existing_factors
+                    alpha_data = pd.read_csv(alpha_file, usecols=usecols, parse_dates=['Date'])
+                    alpha_data = alpha_data[(alpha_data['Date'] >= start_date_dt) & (alpha_data['Date'] <= end_date_dt)]
                 else:
-                    # results가 dict가 아닌 경우 기본값 사용 (랜덤이 아닌 고정값)
-                    filtered_results = {
-                        factor: {
-                            'cagr': 0.0,
-                            'sharpe_ratio': 0.0,
-                            'max_drawdown': 0.0,
-                            'ic_mean': 0.0,
-                            'win_rate': 0.0,
-                            'volatility': 0.0
-                        }
-                        for factor in factors
-                    }
-                
-                backtest_status[task_id]['progress'] = 90
-                
-                # 결과를 JSON 직렬화 가능한 형태로 변환
-                serializable_results = {}
-                for factor, result in filtered_results.items():
-                    if isinstance(result, dict):
-                        serializable_results[factor] = {
-                            k: float(v) if isinstance(v, (np.float64, np.int64)) else v
-                            for k, v in result.items()
-                        }
+                    alpha_data = pd.DataFrame(columns=base_cols)
+
+                missing_factors = [f for f in factors if f not in existing_factors]
+                if missing_factors:
+                    append_status(progress=35, log=f"사전 팩터에 없는 {len(missing_factors)}개 수식을 계산합니다.")
+                    for idx, factor in enumerate(missing_factors, 1):
+                        try:
+                            computed = compute_factor_series_from_registry(factor, registry, price_data)
+                            computed = computed[(computed['Date'] >= start_date_dt) & (computed['Date'] <= end_date_dt)]
+                            if alpha_data.empty:
+                                alpha_data = computed
+                            else:
+                                alpha_data = pd.merge(alpha_data, computed, how='outer', on=['Date', 'Ticker'])
+                            append_status(log=f"{factor} 계산 완료 ({idx}/{len(missing_factors)})")
+                        except Exception as exc:
+                            logger.error("%s 팩터 계산 실패: %s", factor, exc)
+                            append_status(log=f"{factor} 팩터 계산 실패: {exc}")
+                else:
+                    append_status(progress=35, log="모든 팩터가 사전 계산되어 있습니다.")
+
+                alpha_data = alpha_data.drop_duplicates(subset=['Date', 'Ticker'])
+
+                results_dict: Dict[str, Dict[str, Any]] = {}
+                total_factors = len(factors) or 1
+
+                append_status(progress=45, log="팩터별 성과 지표를 계산합니다.")
+                for idx, factor in enumerate(factors, 1):
+                    append_status(progress=45 + int(40 * idx / total_factors), log=f"{factor} 백테스트 계산 중 ({idx}/{total_factors})")
+                    if factor not in alpha_data.columns:
+                        append_status(log=f"{factor} 데이터가 없어 건너뜁니다.")
+                        continue
+
+                    merged_data = pd.merge(
+                        price_data.copy(),
+                        alpha_data[['Date', 'Ticker', factor]],
+                        on=['Date', 'Ticker'],
+                        how='inner'
+                    )
+                    if merged_data.empty:
+                        append_status(log=f"{factor} 데이터가 없어 건너뜁니다.")
+                        continue
+
+                    merged_data = merged_data.sort_values(['Ticker', 'Date'])
+                    merged_data['NextDayReturn'] = merged_data.groupby('Ticker')['Close'].shift(-1) / merged_data['Close'] - 1
+                    merged_data = merged_data.dropna(subset=[factor, 'NextDayReturn'])
+                    if merged_data.empty:
+                        append_status(log=f"{factor} 유효 표본이 없어 건너뜁니다.")
+                        continue
+
+                    if rebalancing_frequency == 'daily':
+                        rebalance_dates = sorted(merged_data['Date'].unique())
+                    elif rebalancing_frequency == 'weekly':
+                        rebalance_dates = sorted(merged_data[merged_data['Date'].dt.weekday == 0]['Date'].unique())
+                    elif rebalancing_frequency == 'monthly':
+                        rebalance_dates = sorted(merged_data[merged_data['Date'].dt.day == 1]['Date'].unique())
+                    elif rebalancing_frequency == 'quarterly':
+                        quarterly_months = [1, 4, 7, 10]
+                        rebalance_dates = sorted(merged_data[
+                            (merged_data['Date'].dt.month.isin(quarterly_months)) &
+                            (merged_data['Date'].dt.day == 1)
+                        ]['Date'].unique())
                     else:
-                        serializable_results[factor] = str(result)
-                
+                        rebalance_dates = sorted(merged_data['Date'].unique())
+
+                    factor_returns = []
+                    holding_periods = []
+                    if len(rebalance_dates) < 2:
+                        append_status(log=f"{factor} 리밸런싱 구간이 부족해 건너뜁니다.")
+                        continue
+
+                    for idx_reb, rebalance_date in enumerate(rebalance_dates[:-1]):
+                        next_rebalance_date = rebalance_dates[idx_reb + 1]
+
+                        group = merged_data[merged_data['Date'] == rebalance_date]
+                        next_group = merged_data[merged_data['Date'] == next_rebalance_date][['Ticker', 'Close']].rename(columns={'Close': 'Close_future'})
+
+                        if len(group) < 10 or next_group.empty:
+                            continue
+
+                        group = group.merge(next_group, on='Ticker', how='inner')
+                        if len(group) < 10:
+                            continue
+
+                        group['HoldingReturn'] = group['Close_future'] / group['Close'] - 1
+                        group = group.sort_values([factor, 'Ticker'], ascending=[False, True])
+                        n_stocks = len(group)
+                        top_n = max(1, int(n_stocks * quantile))
+                        bottom_n = max(1, int(n_stocks * quantile))
+                        long_portfolio = group.head(top_n)
+                        short_portfolio = group.tail(bottom_n)
+                        long_return = long_portfolio['HoldingReturn'].mean()
+                        short_return = short_portfolio['HoldingReturn'].mean()
+                        factor_return = long_return - short_return - (2 * transaction_cost)
+                        holding_days = max(1, len(pd.bdate_range(rebalance_date, next_rebalance_date)) - 1)
+                        factor_returns.append({'Date': rebalance_date, 'FactorReturn': factor_return, 'HoldingDays': holding_days})
+                        holding_periods.append(holding_days)
+
+                    if not factor_returns:
+                        append_status(log=f"{factor} 리밸런싱 구간에서 수익률을 계산할 수 없습니다.")
+                        continue
+
+                    factor_returns_df = pd.DataFrame(factor_returns).sort_values('Date').reset_index(drop=True)
+                    returns = factor_returns_df['FactorReturn'].values
+                    nav = np.concatenate(([1.0], np.cumprod(1 + returns)))
+
+                    cumulative_returns = []
+                    if not factor_returns_df.empty:
+                        first_date = factor_returns_df['Date'].iloc[0]
+                        cumulative_returns.append({
+                            'date': first_date.strftime('%Y-%m-%d'),
+                            'value': 0.0
+                        })
+                        cumulative_returns.extend(
+                            {
+                                'date': date.strftime('%Y-%m-%d'),
+                                'value': float(nav_val - 1.0)
+                            }
+                            for date, nav_val in zip(factor_returns_df['Date'], nav[1:])
+                        )
+
+                    periods = np.array(holding_periods, dtype=float)
+                    cumulative_days = np.cumsum(periods) if len(periods) else np.array([])
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        rolling_cagr = np.power(np.maximum(nav[1:], 1e-12), 252 / cumulative_days) - 1 if len(cumulative_days) else np.array([])
+                    cagr_series = [
+                        {
+                            'date': date.strftime('%Y-%m-%d'),
+                            'value': float(val)
+                        }
+                        for date, val in zip(factor_returns_df['Date'], rolling_cagr)
+                    ]
+
+                    total_return = nav[-1] - 1 if len(nav) else 0.0
+                    total_holding_days = np.sum(holding_periods) if holding_periods else 0
+                    years = total_holding_days / 252 if total_holding_days else 0
+                    cagr = (nav[-1]) ** (1 / years) - 1 if years > 0 and nav[-1] > 0 else 0.0
+
+                    if len(returns):
+                        return_std = returns.std(ddof=0)
+                        mean_return = returns.mean()
+                        periods_per_year = (252 / (np.mean(holding_periods) if holding_periods else 1))
+                        sharpe = mean_return / return_std * np.sqrt(periods_per_year) if return_std > 0 else 0.0
+                        downside = returns[returns < 0]
+                        downside_std = downside.std(ddof=0) if len(downside) else 0.0
+                        sortino = mean_return / downside_std * np.sqrt(periods_per_year) if downside_std > 0 else 0.0
+                        win_rate = float((returns > 0).mean())
+                        volatility = return_std * np.sqrt(periods_per_year) if return_std > 0 else 0.0
+                    else:
+                        sharpe = 0.0
+                        sortino = 0.0
+                        win_rate = 0.0
+                        volatility = 0.0
+
+                    cumulative_curve = nav
+                    running_max = np.maximum.accumulate(cumulative_curve)
+                    drawdown = (cumulative_curve - running_max) / running_max
+                    max_drawdown = float(drawdown.min()) if len(drawdown) else 0.0
+
+                    ic_values = []
+                    for date, group in merged_data.groupby('Date'):
+                        if len(group) < 10:
+                            continue
+                        valid_data = group[[factor, 'NextDayReturn']].dropna()
+                        if len(valid_data) > 5:
+                            ic = valid_data[factor].corr(valid_data['NextDayReturn'])
+                            if pd.notna(ic):
+                                ic_values.append(ic)
+                    ic_mean = float(np.mean(ic_values)) if ic_values else 0.0
+
+                    results_dict[factor] = {
+                        'cagr': float(cagr),
+                        'sharpe_ratio': float(sharpe),
+                        'sortino_ratio': float(sortino),
+                        'max_drawdown': float(max_drawdown),
+                        'ic_mean': float(ic_mean),
+                        'win_rate': float(win_rate),
+                        'volatility': float(volatility),
+                        'total_return': float(total_return),
+                        'cumulative_returns': cumulative_returns,
+                        'cagr_series': cagr_series,
+                    }
+
+                    logger.info("팩터 %s 백테스트 완료: CAGR %.4f, Sharpe %.4f", factor, cagr, sharpe)
+                    append_status(log=f"{factor} 완료 (CAGR {(cagr*100):.2f}% / Sharpe {sharpe:.2f})")
+
+                if not results_dict:
+                    raise RuntimeError('계산된 백테스트 결과가 없습니다.')
+
+                append_status(progress=90, log="결과를 정리하고 있습니다.")
+                snapshot_logs = backtest_status.get(task_id, {}).get('logs', [])
                 backtest_status[task_id] = {
                     'status': 'completed',
                     'progress': 100,
-                    'results': serializable_results,
+                    'results': results_dict,
                     'parameters': {
                         'start_date': start_date,
                         'end_date': end_date,
                         'factors': factors
                     },
-                    'end_time': datetime.now().isoformat()
+                    'end_time': datetime.now().isoformat(),
+                    'logs': snapshot_logs
                 }
-                
-                logger.info(f"백테스트 완료: {task_id}")
-                
+
+                append_status(progress=100, log="백테스트가 완료되었습니다.")
+                logger.info("백테스트 완료: %s", task_id)
+
             except Exception as e:
-                logger.error(f"백테스트 실행 오류: {str(e)}")
+                logger.error("백테스트 실행 오류: %s", e)
+                snapshot_logs = backtest_status.get(task_id, {}).get('logs', [])
                 backtest_status[task_id] = {
                     'status': 'failed',
                     'error': str(e),
@@ -860,8 +1541,10 @@ def run_backtest():
                         'end_date': end_date,
                         'factors': factors
                     },
-                    'end_time': datetime.now().isoformat()
+                    'end_time': datetime.now().isoformat(),
+                    'logs': snapshot_logs
                 }
+                append_status(log=f"백테스트 실패: {e}")
         
         # 비동기 실행
         thread = threading.Thread(target=run_backtest_async)
@@ -896,6 +1579,7 @@ def run_ga():
         population_size = data.get('population_size', 50)
         generations = data.get('generations', 20)
         max_depth = data.get('max_depth', 3)
+        max_survivors = max(1, int(data.get('max_alphas', 10)))
         
         if not ga_system:
             return jsonify({'error': 'GA 시스템이 초기화되지 않았습니다'}), 500
@@ -909,7 +1593,8 @@ def run_ga():
             'parameters': {
                 'population_size': population_size,
                 'generations': generations,
-                'max_depth': max_depth
+                'max_depth': max_depth,
+                'max_alphas': max_survivors,
             }
         }
         
@@ -983,7 +1668,8 @@ def run_ga():
                         # 실제 GA 결과가 있는 경우 (또는 빈 리스트인 경우 더미 데이터로 폴백)
                         if best_alphas and len(best_alphas) > 0:
                             formatted_alphas = []
-                            for ind in best_alphas[:max_depth * 2]:  # 깊이 x2 만큼 가져오기
+                            elite_cap = max(1, min(max_survivors, len(best_alphas)))
+                            for ind in best_alphas[:elite_cap]:
                                 if hasattr(ind, 'tree') and hasattr(ind, 'fitness'):
                                     try:
                                         expr = ind.tree.to_python_expr() if hasattr(ind.tree, 'to_python_expr') else str(ind.tree)
@@ -1000,7 +1686,22 @@ def run_ga():
                                 best_alphas = formatted_alphas
                                 logger.info(f"실제 GA 결과 사용: {len(best_alphas)}개")
                             else:
-                                raise ValueError("GA 결과 변환 실패")
+                                logger.warning("GA 결과 직렬화 실패, 트리 표현 문자열로 폴백합니다.")
+                                fallback_alphas = []
+                                for ind in best_alphas[:elite_cap]:
+                                    try:
+                                        fallback_alphas.append({
+                                            "expression": repr(getattr(ind, "tree", ind)),
+                                            "fitness": abs(float(getattr(ind, "fitness", 0.0) or 0.0))
+                                        })
+                                    except Exception as err:
+                                        logger.warning(f"폴백 변환 실패: {err}")
+                                        continue
+                                if fallback_alphas:
+                                    best_alphas = fallback_alphas
+                                    logger.info(f"폴백 GA 결과 사용: {len(best_alphas)}개")
+                                else:
+                                    raise ValueError("GA 결과 변환 실패")
                         else:
                             # GA가 엘리트를 찾지 못한 경우 - 명확한 오류 메시지 출력
                             log_to_status(f"❌ 실제 GA에서 결과 없음 (길이: {len(best_alphas) if best_alphas else 0})")
@@ -1129,6 +1830,9 @@ def backtest_ga_results(task_id):
         rebalancing_frequency = data.get('rebalancing_frequency', 'weekly')
         transaction_cost = data.get('transaction_cost', 0.001)
         quantile = data.get('quantile', 0.1)
+
+        start_date_dt = pd.to_datetime(start_date)
+        end_date_dt = pd.to_datetime(end_date)
         
         # GA 결과에서 상위 N개 표현식 추출
         top_expressions = ga_result['results'][:5]  # 상위 5개
@@ -1156,29 +1860,103 @@ def backtest_ga_results(task_id):
         def run_ga_backtest_async():
             try:
                 logger.info(f"GA 백테스트 시작: {backtest_task_id}")
-                backtest_status[backtest_task_id]['progress'] = 20
-                
-                # 실제로는 여기서 NewAlphas.py를 생성하고 백테스트 실행
-                import time
-                time.sleep(3)  # 시뮬레이션
-                
-                backtest_status[backtest_task_id]['progress'] = 60
-                
-                # 더미 백테스트 결과 생성
-                results = {}
-                for i, expr_data in enumerate(top_expressions):
-                    factor_name = f"ga_alpha_{i+1:03d}"
-                    results[factor_name] = {
-                        'expression': expr_data['expression'],
-                        'ga_fitness': expr_data['fitness'],
-                        'cagr': np.random.uniform(0.05, 0.20),
-                        'sharpe_ratio': np.random.uniform(0.8, 2.5),
-                        'max_drawdown': np.random.uniform(-0.25, -0.05),
-                        'ic_mean': np.random.uniform(-0.05, 0.10),
-                    }
-                
+                backtest_status[backtest_task_id]['progress'] = 10
+
+                price_file = os.path.join(PROJECT_ROOT, 'database', 'sp500_interpolated.csv')
+                price_cols = ['Date', 'Ticker', 'Open', 'High', 'Low', 'Close', 'Volume']
+
+                price_data = pd.read_csv(price_file, usecols=price_cols, parse_dates=['Date'])
+                price_data = price_data[(price_data['Date'] >= start_date_dt) & (price_data['Date'] <= end_date_dt)]
+
+                if price_data.empty:
+                    raise ValueError('선택한 기간에 해당하는 가격 데이터가 없습니다')
+
+                price_data = price_data.sort_values(['Date', 'Ticker']).reset_index(drop=True)
+                grouped_price = {
+                    ticker: group[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']].copy()
+                    for ticker, group in price_data.groupby('Ticker')
+                }
+
+                results: Dict[str, Dict[str, Any]] = {}
+
+                for index, expr_data in enumerate(top_expressions, start=1):
+                    factor_name = f"ga_alpha_{index:03d}"
+                    expression = expr_data.get('expression', '')
+                    fitness_value = float(expr_data.get('fitness', 0.0) or 0.0)
+
+                    try:
+                        transpiled = compile_expression(expression, name=factor_name)
+                    except AlphaTranspilerError as exc:
+                        results[factor_name] = {
+                            'expression': expression,
+                            'ga_fitness': fitness_value,
+                            'error': f'표현식 컴파일 실패: {exc}'
+                        }
+                        continue
+
+                    factor_frames: List[pd.DataFrame] = []
+                    for ticker, ticker_df in grouped_price.items():
+                        dataset = prepare_alpha_dataset_from_price(ticker_df)
+                        try:
+                            factor_series = transpiled.callable(dataset)
+                        except Exception as exc:
+                            raise RuntimeError(f"{factor_name} ({ticker}) 계산 실패: {exc}") from exc
+
+                        factor_frames.append(
+                            pd.DataFrame({
+                                'Date': dataset.frame.index,
+                                'Ticker': ticker,
+                                'factor_value': factor_series.values,
+                            })
+                        )
+
+                    if not factor_frames:
+                        results[factor_name] = {
+                            'expression': expression,
+                            'ga_fitness': fitness_value,
+                            'error': '팩터 값을 계산할 수 없습니다'
+                        }
+                        continue
+
+                    factor_df = pd.concat(factor_frames, ignore_index=True)
+                    merged = pd.merge(
+                        price_data[['Date', 'Ticker', 'Close']],
+                        factor_df,
+                        on=['Date', 'Ticker'],
+                        how='inner'
+                    ).dropna(subset=['factor_value'])
+
+                    if merged.empty:
+                        results[factor_name] = {
+                            'expression': expression,
+                            'ga_fitness': fitness_value,
+                            'error': '병합된 데이터가 비어 있습니다'
+                        }
+                        continue
+
+                    metrics = calculate_factor_performance(
+                        merged,
+                        factor_col='factor_value',
+                        quantile=quantile,
+                        transaction_cost=transaction_cost,
+                        rebalancing_frequency=rebalancing_frequency
+                    )
+
+                    metrics.update({
+                        'expression': expression,
+                        'ga_fitness': fitness_value,
+                    })
+
+                    results[factor_name] = {k: (float(v) if isinstance(v, (np.floating, np.integer)) else v)
+                                             for k, v in metrics.items()}
+
+                    progress_step = 10 + int(70 * index / max(1, len(top_expressions)))
+                    backtest_status[backtest_task_id]['progress'] = progress_step
+
+                has_success = any('error' not in value for value in results.values())
+
                 backtest_status[backtest_task_id] = {
-                    'status': 'completed',
+                    'status': 'completed' if has_success else 'failed',
                     'progress': 100,
                     'results': results,
                     'parameters': {
@@ -1192,13 +1970,14 @@ def backtest_ga_results(task_id):
                     },
                     'end_time': datetime.now().isoformat()
                 }
-                
+
                 logger.info(f"GA 백테스트 완료: {backtest_task_id}")
                 
             except Exception as e:
                 logger.error(f"GA 백테스트 실행 오류: {str(e)}")
                 backtest_status[backtest_task_id] = {
                     'status': 'failed',
+                    'progress': 100,
                     'error': str(e),
                     'parameters': {
                         'start_date': start_date,
@@ -1265,33 +2044,196 @@ def chat_with_agent():
         logger.error(f"채팅 오류: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/incubator/chat', methods=['POST'])
+def incubator_chat():
+    """LangChain + MCTS 알파 인큐베이터 대화"""
+    try:
+        payload = request.get_json() or {}
+        message = (payload.get('message') or '').strip()
+        if not message:
+            return jsonify({'success': False, 'error': '메시지를 입력해 주세요'}), 400
+
+        session_id = payload.get('session_id') or str(uuid.uuid4())
+        session = incubator_sessions.setdefault(session_id, {
+            'session_id': session_id,
+            'created_at': datetime.now().isoformat(),
+            'messages': [],
+            'candidates': [],
+            'last_trace': [],
+            'updated_at': datetime.now().isoformat(),
+            'last_provider': 'ollama' if OLLAMA_AVAILABLE else 'heuristic',
+        })
+
+        history_payload = payload.get('history')
+        if history_payload and not session['messages']:
+            try:
+                for entry in history_payload:
+                    if not isinstance(entry, dict):
+                        continue
+                    role = entry.get('role') or 'user'
+                    if role not in {'user', 'assistant'}:
+                        continue
+                    content = (entry.get('content') or '').strip()
+                    if not content:
+                        continue
+                    if role == 'user' and content == message:
+                        # 프론트엔드에서 직전 사용자 입력을 히스토리에 포함시키므로 중복을 방지
+                        continue
+                    timestamp = entry.get('timestamp') or datetime.now().isoformat()
+                    session['messages'].append({
+                        'role': role,
+                        'content': content,
+                        'timestamp': timestamp,
+                    })
+            except Exception:
+                logger.warning("초기 히스토리 파싱 실패, 무시합니다.")
+
+        session['messages'].append({
+            'role': 'user',
+            'content': message,
+            'timestamp': datetime.now().isoformat(),
+        })
+
+        intent = detect_intent(message, payload.get('intent'))
+        warnings: List[str] = []
+        candidates: List[Dict[str, Any]] = session.get('candidates', [])
+        trace: List[Dict[str, Any]] = session.get('last_trace', [])
+        llm_provider = 'unknown'
+
+        if intent == 'off_topic':
+            reply = "이 인큐베이터는 알파 수식과 플랫폼 관련 문의에만 답변합니다. 전략·지표·알파 생성과 관련된 질문을 해주세요."
+        elif intent == 'generate':
+            candidates, trace, llm_provider = run_mcts_search(message)
+            if llm_provider != 'ollama':
+                warnings.append("로컬 Ollama LLM이 비활성화되어 휴리스틱 응답을 사용했습니다. `ollama serve` 상태를 확인하세요.")
+            unsupported_reasons = sorted(
+                {entry.get('reason') for entry in trace if entry.get('reason')}
+            )
+            for reason in unsupported_reasons:
+                warnings.append(reason)
+            if not candidates:
+                warnings.append("MCTS 탐색에서 적합한 알파를 찾지 못해 기본 전략을 제안합니다.")
+                fallback_expression = "rank(ts_rank(close - delay(close, 5), 10) * volume)"
+                candidates = [{
+                    'id': 'candidate_fallback',
+                    'name': 'Fallback Alpha',
+                    'expression': fallback_expression,
+                    'rationale': '최근 5일 모멘텀을 거래량으로 가중하여 변동성이 큰 종목을 포착합니다.',
+                    'score': 0.45,
+                    'path': ['root', 'fallback'],
+                }]
+                trace = []
+
+            best_candidate = candidates[0]
+            reply_lines = [
+                f"{len(candidates)}개의 후보 알파를 탐색했습니다.",
+                f"우선 추천: **{best_candidate['name']}** (점수 {best_candidate['score']:.2f})",
+                f"수식: {best_candidate['expression']}",
+                f"해설: {best_candidate['rationale']}",
+                "다른 후보도 오른쪽 패널에서 확인하고 저장할 수 있습니다.",
+            ]
+            reply = "\n".join(reply_lines)
+            session['candidates'] = candidates
+            session['last_trace'] = trace
+            session['last_provider'] = llm_provider
+        else:
+            system_instruction = textwrap.dedent(
+                """
+                당신은 AlphaIncubator 용 LangChain 코디네이터입니다.
+                - 사용자의 프로젝트 관련 질문에 한국어로 답하세요.
+                - 알파 전략, 백테스트, GA, LangChain, MCTS 등 플랫폼 기능과 연관된 정보만 제공하세요.
+                - 프로그램 외 질문은 정중히 거절하세요.
+                """
+            ).strip()
+
+            recent_messages = session['messages'][-6:]
+            llm_messages = [{'role': 'system', 'content': system_instruction}]
+            for entry in recent_messages:
+                llm_messages.append({
+                    'role': entry['role'],
+                    'content': entry['content'],
+                })
+            reply, llm_provider = call_local_llm(llm_messages, temperature=0.1)
+            if llm_provider != 'ollama':
+                warnings.append("로컬 Ollama LLM이 비활성화되어 휴리스틱 응답을 사용했습니다.")
+            session['last_provider'] = llm_provider
+
+        session['messages'].append({
+            'role': 'assistant',
+            'content': reply,
+            'timestamp': datetime.now().isoformat(),
+        })
+        session['updated_at'] = datetime.now().isoformat()
+
+        visible_history = [
+            entry for entry in session['messages']
+            if entry.get('role') in {'user', 'assistant'}
+        ]
+
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'intent': intent,
+            'reply': reply,
+            'llm_provider': llm_provider,
+            'candidates': candidates,
+            'mcts_trace': trace,
+            'warnings': warnings,
+            'history': visible_history,
+        })
+    except Exception as exc:
+        logger.error("인큐베이터 채팅 오류: %s", exc)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@app.route('/api/incubator/session/<session_id>', methods=['GET'])
+def get_incubator_session(session_id: str):
+    """저장된 인큐베이터 세션 조회"""
+    session = incubator_sessions.get(session_id)
+    if not session:
+        return jsonify({'success': False, 'error': '세션을 찾을 수 없습니다'}), 404
+
+    visible_history = [
+        entry for entry in session.get('messages', [])
+        if entry.get('role') in {'user', 'assistant'}
+    ]
+
+    return jsonify({
+        'success': True,
+        'session_id': session_id,
+        'history': visible_history,
+        'candidates': session.get('candidates', []),
+        'mcts_trace': session.get('last_trace', []),
+        'llm_provider': session.get('last_provider', 'ollama' if OLLAMA_AVAILABLE else 'heuristic'),
+        'created_at': session.get('created_at'),
+        'updated_at': session.get('updated_at'),
+    })
+
 @app.route('/api/data/factors', methods=['GET'])
 def get_factors():
     """사용 가능한 알파 팩터 목록 조회"""
     try:
-        # sp500_with_alphas.csv에서 알파 컬럼 추출
-        alpha_file = os.path.join(PROJECT_ROOT, 'database', 'sp500_with_alphas.csv')
-        
-        if not os.path.exists(alpha_file):
-            # 파일이 없으면 기본 알파 목록 제공
-            alpha_columns = [f'alpha{i:03d}' for i in range(1, 102) if i not in [48, 56, 58, 59, 63, 67, 69, 70, 76, 79, 80, 82, 87, 89, 90, 91, 93, 97, 100]]
-            logger.warning(f"알파 데이터 파일을 찾을 수 없어 기본 목록을 사용합니다: {alpha_file}")
-        else:
-            try:
-                # 첫 번째 행만 읽어서 컬럼명 확인
-                df = pd.read_csv(alpha_file, nrows=1)
-                
-                # alpha로 시작하는 컬럼들 추출
-                alpha_columns = [col for col in df.columns if col.startswith('alpha')]
-            except Exception as e:
-                # 읽기 실패 시 기본 목록 제공
+        definitions = SHARED_ALPHA_REGISTRY.list(source='shared')
+        alpha_columns = [definition.name for definition in definitions]
+
+        if not alpha_columns:
+            # 레지스트리가 비어있는 것은 비정상 상황이므로 기존 CSV 기반 fallback 유지
+            alpha_file = os.path.join(PROJECT_ROOT, 'database', 'sp500_with_alphas.csv')
+            if os.path.exists(alpha_file):
+                try:
+                    df = pd.read_csv(alpha_file, nrows=1)
+                    alpha_columns = [col for col in df.columns if col.startswith('alpha')]
+                except Exception as e:
+                    logger.warning("CSV 기반 알파 목록 추출 실패: %s", e)
+            if not alpha_columns:
                 alpha_columns = [f'alpha{i:03d}' for i in range(1, 102) if i not in [48, 56, 58, 59, 63, 67, 69, 70, 76, 79, 80, 82, 87, 89, 90, 91, 93, 97, 100]]
-                logger.warning(f"알파 데이터 파일 읽기 실패로 기본 목록을 사용합니다: {e}")
         
         return jsonify({
             'success': True,
             'factors': alpha_columns,
-            'total_count': len(alpha_columns)
+            'total_count': len(alpha_columns),
+            'metadata': [serialize_alpha_definition(defn) for defn in definitions]
         })
         
     except Exception as e:
@@ -1560,125 +2502,28 @@ def get_portfolio_performance():
             if len(merged_data) == 0:
                 raise Exception("유효한 데이터가 없습니다")
             
-            # 리밸런싱 주기에 따른 날짜 필터링 (일관된 결과를 위해 정렬)
-            if rebalancing_frequency == 'daily':
-                rebalance_dates = sorted(merged_data['Date'].unique())
-            elif rebalancing_frequency == 'weekly':
-                # 매주 월요일만 리밸런싱
-                rebalance_dates = sorted(merged_data[merged_data['Date'].dt.weekday == 0]['Date'].unique())
-            elif rebalancing_frequency == 'monthly':
-                # 매월 첫째 날만 리밸런싱
-                rebalance_dates = sorted(merged_data[merged_data['Date'].dt.day == 1]['Date'].unique())
-            elif rebalancing_frequency == 'quarterly':
-                # 분기별 리밸런싱 (1, 4, 7, 10월 첫째 날)
-                quarterly_months = [1, 4, 7, 10]
-                rebalance_dates = sorted(merged_data[
-                    (merged_data['Date'].dt.month.isin(quarterly_months)) & 
-                    (merged_data['Date'].dt.day == 1)
-                ]['Date'].unique())
-            else:
-                rebalance_dates = sorted(merged_data['Date'].unique())
-            
-            # 리밸런싱 날짜별 팩터 수익률 계산
-            factor_returns = []
-            for rebalance_date in sorted(rebalance_dates):
-                # 리밸런싱 날짜의 데이터만 사용
-                group = merged_data[merged_data['Date'] == rebalance_date]
-                
-                if len(group) < 10:
-                    continue
-                
-                # 팩터 값으로 정렬 (일관된 결과를 위해 Ticker도 함께 정렬)
-                group = group.sort_values([alpha_factor, 'Ticker'], ascending=[False, True])
-                
-                # 상위/하위 분위수 계산
-                n_stocks = len(group)
-                top_n = max(1, int(n_stocks * quantile))
-                bottom_n = max(1, int(n_stocks * quantile))
-                
-                # 롱/숏 포트폴리오 구성
-                long_portfolio = group.head(top_n)
-                short_portfolio = group.tail(bottom_n)
-                
-                # 수익률 계산
-                long_return = long_portfolio['NextDayReturn'].mean()
-                short_return = short_portfolio['NextDayReturn'].mean()
-                
-                # 롱-숏 수익률 (거래비용 차감)
-                factor_return = long_return - short_return - (2 * transaction_cost)
-                
-                factor_returns.append({
-                    'Date': rebalance_date,
-                    'FactorReturn': factor_return
-                })
-            
-            if not factor_returns:
-                raise Exception("팩터 수익률 데이터가 없습니다")
-            
-            # 결과 데이터프레임 생성
-            factor_returns_df = pd.DataFrame(factor_returns)
-            factor_returns_df = factor_returns_df.sort_values('Date').reset_index(drop=True)
-            
-            # 성능 지표 계산
-            returns = factor_returns_df['FactorReturn'].values
-            
-            # CAGR 계산
-            total_return = (1 + returns).prod() - 1
-            days = len(returns)
-            years = days / 252
-            cagr = (1 + total_return) ** (1 / years) - 1 if years > 0 else 0
-            
-            # Sharpe Ratio 계산
-            sharpe = returns.mean() / returns.std() * np.sqrt(252) if returns.std() > 0 else 0
-            
-            # Win Rate 계산
-            win_rate = (returns > 0).mean()
-            
-            # MDD 계산
-            cumulative_curve = (1 + returns).cumprod()
-            running_max = np.maximum.accumulate(cumulative_curve)
-            drawdown = (cumulative_curve - running_max) / running_max
-            max_drawdown = drawdown.min()
-            
-            # IC 계산
-            ic_values = []
-            for date, group in merged_data.groupby('Date'):
-                if len(group) < 10:
-                    continue
-                valid_data = group.dropna(subset=[alpha_factor, 'NextDayReturn'])
-                if len(valid_data) > 5:
-                    ic = valid_data[alpha_factor].corr(valid_data['NextDayReturn'])
-                    if not np.isnan(ic):
-                        ic_values.append(ic)
-            ic_mean = np.mean(ic_values) if ic_values else 0
-            
-            # 변동성 계산
-            volatility = returns.std() * np.sqrt(252)
-            
-            performance_metrics = [{
-                'CAGR': cagr,
-                'SharpeRatio': sharpe,
-                'MDD': max_drawdown,
-                'IC': ic_mean,
-                'WinRate': win_rate,
-                'Volatility': volatility,
-                'Factor': alpha_factor
-            }]
-            
-            # 결과에서 성과 지표 추출
-            if performance_metrics and len(performance_metrics) > 0:
-                metrics = performance_metrics[0]  # 첫 번째 팩터 결과
-                performance = {
-                    'cagr': float(metrics.get('CAGR', 0)),
-                    'sharpe_ratio': float(metrics.get('SharpeRatio', 0)),
-                    'max_drawdown': float(metrics.get('MDD', 0)),
-                    'ic_mean': float(metrics.get('IC', 0)),
-                    'win_rate': float(metrics.get('WinRate', 0)),
-                    'volatility': float(metrics.get('Volatility', 0))
-                }
-                logger.info(f"실제 백테스트 결과: CAGR={performance['cagr']:.4f}, Sharpe={performance['sharpe_ratio']:.4f}")
-            else:
-                raise Exception("백테스트 결과가 비어있습니다")
+            metrics = calculate_factor_performance(
+                merged_data[['Date', 'Ticker', 'Close', alpha_factor]],
+                factor_col=alpha_factor,
+                quantile=quantile,
+                transaction_cost=transaction_cost,
+                rebalancing_frequency=rebalancing_frequency,
+                top_count=top_count
+            )
+
+            performance = {
+                'cagr': float(metrics.get('cagr', 0.0)),
+                'sharpe_ratio': float(metrics.get('sharpe_ratio', 0.0)),
+                'max_drawdown': float(metrics.get('max_drawdown', 0.0)),
+                'ic_mean': float(metrics.get('ic_mean', 0.0)),
+                'win_rate': float(metrics.get('win_rate', 0.0)),
+                'volatility': float(metrics.get('volatility', 0.0))
+            }
+            logger.info(
+                "실제 백테스트 결과: CAGR=%.4f, Sharpe=%.4f",
+                performance['cagr'],
+                performance['sharpe_ratio']
+            )
                 
         except Exception as e:
             logger.error(f"백테스트 실행 실패: {e}")
@@ -1721,50 +2566,81 @@ def get_portfolio_performance():
 def save_user_alpha():
     """사용자 알파 저장"""
     try:
-        if 'username' not in session:
+        username = session.get('username')
+        if not username:
             return jsonify({'error': '로그인이 필요합니다'}), 401
         
-        data = request.get_json()
-        username = session['username']
+        data = request.get_json() or {}
         alphas = data.get('alphas', [])
         
         if not alphas:
             return jsonify({'error': '저장할 알파가 없습니다'}), 400
         
-        # UserAlpha 파일 경로
-        user_alpha_file = os.path.join(PROJECT_ROOT, 'database', 'userdata', 'user_alphas.json')
-        
-        # 파일 로드 또는 생성
-        if os.path.exists(user_alpha_file):
-            with open(user_alpha_file, 'r', encoding='utf-8') as f:
-                user_alphas_data = json.load(f)
-        else:
-            user_alphas_data = {'users': []}
-        
-        # 사용자 찾기 또는 생성
-        user_entry = next((u for u in user_alphas_data['users'] if u['username'] == username), None)
-        if not user_entry:
-            user_entry = {'username': username, 'alphas': []}
-            user_alphas_data['users'].append(user_entry)
-        
-        # 알파 추가 (고유 ID 생성)
-        for alpha in alphas:
-            alpha['id'] = f"alpha_{int(time.time())}_{secrets.token_hex(4)}"
-            alpha['created_at'] = datetime.now().isoformat()
-            user_entry['alphas'].append(alpha)
-        
-        # 파일 저장
-        os.makedirs(os.path.dirname(user_alpha_file), exist_ok=True)
-        with open(user_alpha_file, 'w', encoding='utf-8') as f:
-            json.dump(user_alphas_data, f, ensure_ascii=False, indent=2)
-        
-        logger.info(f"사용자 {username}의 {len(alphas)}개 알파 저장 완료")
-        
-        return jsonify({
+        compiled_records = []
+        errors = []
+        for index, alpha in enumerate(alphas, start=1):
+            expression = (alpha.get('expression') or '').strip()
+            alpha_name = (alpha.get('name') or f'{username}_alpha_{index:03d}').strip()
+
+            if not expression:
+                errors.append(f"{alpha_name}: 알파 수식이 비어 있습니다")
+                continue
+
+            try:
+                transpiled = compile_expression(expression, name=alpha_name)
+            except AlphaTranspilerError as exc:
+                errors.append(f"{alpha_name}: {exc}")
+                continue
+
+            incoming_metadata = alpha.get('metadata') if isinstance(alpha.get('metadata'), dict) else {}
+            metadata = dict(incoming_metadata)
+
+            fitness_value = metadata.get('fitness') if isinstance(metadata.get('fitness'), (int, float)) else alpha.get('fitness')
+            if fitness_value is not None:
+                try:
+                    metadata['fitness'] = float(fitness_value)
+                except (TypeError, ValueError):
+                    metadata['fitness'] = fitness_value
+
+            metadata['transpiler_version'] = transpiled.version
+            metadata['python_source'] = transpiled.python_source
+            metadata['expression'] = expression
+
+            tags = alpha.get('tags', [])
+            if isinstance(tags, str):
+                tags = [tag.strip() for tag in tags.split(",") if tag.strip()]
+            elif isinstance(tags, list):
+                tags = [str(tag).strip() for tag in tags if str(tag).strip()]
+            else:
+                tags = []
+
+            compiled_records.append({
+                'id': alpha.get('id'),
+                'name': alpha_name,
+                'expression': expression,
+                'description': alpha.get('description', ''),
+                'tags': tags,
+                'metadata': metadata,
+            })
+
+        if errors:
+            return jsonify({
+                'error': '일부 알파 수식을 처리할 수 없습니다',
+                'details': errors
+            }), 400
+
+        stored_items = ALPHA_STORE.add_private(username, compiled_records)
+        logger.info("사용자 %s의 %d개 알파 저장 완료", username, len(stored_items))
+
+        payload = build_user_alpha_payload(username)
+        payload.update({
             'success': True,
-            'message': f'{len(alphas)}개의 알파가 저장되었습니다',
-            'saved_alphas': alphas
+            'message': f'{len(stored_items)}개의 알파가 저장되었습니다',
+            'saved_alphas': [item.to_dict() for item in stored_items],
+            'is_authenticated': True,
         })
+
+        return jsonify(payload)
         
     except Exception as e:
         logger.error(f"알파 저장 오류: {str(e)}")
@@ -1774,29 +2650,25 @@ def save_user_alpha():
 def get_user_alphas():
     """사용자 알파 목록 조회"""
     try:
-        if 'username' not in session:
-            return jsonify({'error': '로그인이 필요합니다'}), 401
-        
-        username = session['username']
-        user_alpha_file = os.path.join(PROJECT_ROOT, 'database', 'userdata', 'user_alphas.json')
-        
-        if not os.path.exists(user_alpha_file):
-            return jsonify({
-                'success': True,
-                'alphas': [],
-                'total_count': 0
-            })
-        
-        with open(user_alpha_file, 'r', encoding='utf-8') as f:
-            user_alphas_data = json.load(f)
-        
-        user_entry = next((u for u in user_alphas_data['users'] if u['username'] == username), None)
-        alphas = user_entry['alphas'] if user_entry else []
-        
+        username = session.get('username')
+        if username:
+            payload = build_user_alpha_payload(username)
+            payload.update({"success": True, "is_authenticated": True})
+            return jsonify(payload)
+
+        shared_payload = [serialize_alpha_definition(defn) for defn in SHARED_ALPHA_REGISTRY.list(source='shared')]
         return jsonify({
             'success': True,
-            'alphas': alphas,
-            'total_count': len(alphas)
+            'stored_alphas': [],
+            'private_alphas': [],
+            'shared_alphas': shared_payload,
+            'summary': {
+                'shared_count': len(shared_payload),
+                'private_count': 0,
+                'total_count': len(shared_payload),
+                'registry_size': len(SHARED_ALPHA_REGISTRY),
+            },
+            'is_authenticated': False,
         })
         
     except Exception as e:
@@ -1807,39 +2679,22 @@ def get_user_alphas():
 def delete_user_alpha(alpha_id):
     """사용자 알파 삭제"""
     try:
-        if 'username' not in session:
+        username = session.get('username')
+        if not username:
             return jsonify({'error': '로그인이 필요합니다'}), 401
         
-        username = session['username']
-        user_alpha_file = os.path.join(PROJECT_ROOT, 'database', 'userdata', 'user_alphas.json')
-        
-        if not os.path.exists(user_alpha_file):
-            return jsonify({'error': '알파 파일을 찾을 수 없습니다'}), 404
-        
-        with open(user_alpha_file, 'r', encoding='utf-8') as f:
-            user_alphas_data = json.load(f)
-        
-        user_entry = next((u for u in user_alphas_data['users'] if u['username'] == username), None)
-        if not user_entry:
-            return jsonify({'error': '사용자를 찾을 수 없습니다'}), 404
-        
-        # 알파 삭제
-        original_count = len(user_entry['alphas'])
-        user_entry['alphas'] = [a for a in user_entry['alphas'] if a['id'] != alpha_id]
-        
-        if len(user_entry['alphas']) == original_count:
+        if not ALPHA_STORE.delete_private(username, alpha_id):
             return jsonify({'error': '알파를 찾을 수 없습니다'}), 404
-        
-        # 파일 저장
-        with open(user_alpha_file, 'w', encoding='utf-8') as f:
-            json.dump(user_alphas_data, f, ensure_ascii=False, indent=2)
-        
-        logger.info(f"사용자 {username}의 알파 {alpha_id} 삭제 완료")
-        
-        return jsonify({
+
+        logger.info("사용자 %s의 알파 %s 삭제 완료", username, alpha_id)
+
+        payload = build_user_alpha_payload(username)
+        payload.update({
             'success': True,
-            'message': '알파가 삭제되었습니다'
+            'message': '알파가 삭제되었습니다',
+            'is_authenticated': True,
         })
+        return jsonify(payload)
         
     except Exception as e:
         logger.error(f"알파 삭제 오류: {str(e)}")
@@ -1962,13 +2817,21 @@ def user_login():
         if not user_id:
             return jsonify({'error': '인증에 실패했습니다'}), 401
         
-        # 세션에 사용자 ID 저장
+        # 사용자 정보 조회 (세션 메타데이터로 활용)
+        user_info = user_database.get_user_info(user_id)
+
+        # 세션에 사용자 ID 및 사용자명 저장 (알파 관리 등에서 사용)
         session['user_id'] = user_id
+        if user_info and user_info.get('username'):
+            session['username'] = user_info['username']
+        elif username:
+            session['username'] = username
         
         return jsonify({
             'success': True,
             'message': '로그인 성공',
-            'user_id': user_id
+            'user_id': user_id,
+            'user_info': user_info
         })
         
     except Exception as e:
@@ -2161,6 +3024,7 @@ def user_logout():
     """사용자 로그아웃"""
     try:
         session.pop('user_id', None)
+        session.pop('username', None)
         return jsonify({
             'success': True,
             'message': '로그아웃되었습니다'
@@ -2220,11 +3084,15 @@ def csv_user_login():
         if not user_id:
             return jsonify({'error': '인증에 실패했습니다'}), 401
         
-        # 세션에 사용자 ID 저장
-        session['user_id'] = user_id
-        
         # 사용자 정보 조회
         user_info = csv_manager.get_user_info(user_id)
+        
+        # 세션에 사용자 메타데이터 저장 (알파 관리 모듈에서 사용)
+        session['user_id'] = user_id
+        if user_info and user_info.get('username'):
+            session['username'] = user_info['username']
+        elif username:
+            session['username'] = username
         
         return jsonify({
             'success': True,

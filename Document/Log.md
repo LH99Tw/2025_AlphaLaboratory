@@ -197,6 +197,14 @@
     - **NodeConfigModal 컴포넌트**: 5가지 노드 타입별 설정 UI
     - **데이터 소스**: S&P 500 선택, 날짜 범위 설정
     - **백테스트 조건**: 리밸런싱 주기, 거래비용, Quantile 설정
+
+[12](20250115):Alpha Incubator 안정화 및 후보 패널 재구성
+    - 대화 기록 복원 시 시스템 롤 제거 및 중복 사용자 입력 필터링으로 채팅 버블 2중 출력 해결
+    - IME 조합 중 Enter 가로채기 및 로딩 상태 재진입 차단으로 메시지 전송 안정화
+    - LangChain + MCTS 진행 시 상태 배지, 보류 메시지를 “탐색 중”으로 표기해 대기 상황 가시화
+    - 후보 패널 헤더/카드 레이아웃을 고정 높이 + 내부 스크롤 구조로 재배치하고 점수·경로 배지를 추가
+    - 백엔드에서 허용된 함수만 사용하도록 LLM 프로프트 강화, AST 기반 필터로 미지원 식별자 감지·차단
+    - MCTS 트레이스에 필터링 사유를 기록하고 프런트엔드 경고/로그로 노출해 디버깅 편의성 향상
     - **GA 엔진**: 개체수, 세대, 최종 생존 수 파라미터 입력
     - **진화 과정**: 진행률 Progress Bar, 실시간 상태 표시
     - **최종 결과**: 생성된 알파 요약 정보, 상위 3개 알파 미리보기
@@ -1082,3 +1090,41 @@ allowed_fields = ['name', 'email', 'profile_emoji']
     - 평가 지표 가중치를 설정 파일 없이 조정할 수 있도록 `DEFAULT_METRIC_WEIGHTS`와 사용자 입력 병합 로직을 추가했습니다.
     - 토너먼트 선택, 신규성 아카이브, 세대 기반 연령층 재시작으로 탐색 다양성과 수렴 속도를 강화했습니다.
     - 초기화·진화 로그에 기간별 IC와 회전율 요약을 출력해 `/api/ga/run` 백엔드 로그가 즉시 해석 가능하도록 개선했습니다.
+
+[23](20250117):알파 레지스트리/스토어 리팩토링 및 도큐먼트 반영
+    - `alphas/` 패키지를 신설해 `AlphaDataset`, `AlphaRegistry`, `AlphaStore`, `compile_expression` 등 공용 모듈을 구축하고 WorldQuant 101 알파를 자동 등록했습니다.
+    - 개인 알파 저장소를 `database/alpha_store/` 구조(공용 shared.json + private/<username>.json)로 이전하고, 레거시 `user_alphas.json`을 자동 마이그레이션하도록 했습니다.
+    - `backend/app.py`와 `backend_module/4_ComputeAlphas.py`를 새로운 레지스트리 기반으로 통합해 공유/개인 알파를 일관된 파이프라인에서 계산·노출합니다.
+    - ImplementationSummary, SystemReview, DataStructure 문서를 최신 아키텍처와 응답 스펙에 맞게 업데이트했습니다.
+
+[24](20250117):알파 관리 UX/스토어 안정화 및 세션 연동 수정
+    - CSV/JSON 로그인 흐름에서 `session['username']`이 유지되도록 보완하여 알파 저장 API가 “로그인이 필요합니다”를 잘못 띄우지 않도록 했습니다. (`backend/app.py`)
+    - `AlphaStore.add_private`를 중복 감지 가능하도록 확장하고 메타데이터/태그 정규화, 생성·수정 시각 보존 로직을 추가했습니다. (`alphas/store.py`)
+    - `/api/user-alpha/save|list|delete`가 단일 응답 스키마(`shared_alphas`, `private_alphas`, `summary`)를 반환하도록 리팩터링하고, Dashboard/AlphaPool에서 즉시 반영되도록 API 연동을 일원화했습니다. (`backend/app.py`, `frontend/src/services/api.ts`)
+    - Dashboard 알파 탭 UI를 디자인 문서 기준으로 재정비하고, 개인/공용 알파 분리·카드 카운트·편집/삭제 흐름을 정상화했습니다. (`frontend/src/pages/Dashboard.tsx`)
+    - AlphaPool 저장 패널은 선택 상태 초기화·피드백 문구 정교화로 UX를 개선하고 Null fitness도 안전하게 처리합니다. (`frontend/src/pages/AlphaPool.tsx`, `frontend/src/components/AlphaFactory/AlphaListPanel.tsx`)
+
+[25](20250117):GA 적합도 안정화 및 AlphaPool 개인화 현황 연동
+    - AutoAlphaGA 초기 워밍스타트 후보 수 제한 버그를 수정하고, 안전한 나눗셈·입력 정렬·자산축 PCA 벡터·정보비율 클램핑으로 수만 단위 적합도 폭주 문제를 차단했습니다. (`GA_algorithm/autoalpha_ga.py`)
+    - `correlation` 연산은 인덱스/컬럼 교집합 정렬 후 계산하며, `FitnessMetrics` 정보비율은 변동성 바닥값(0.02) 적용과 ±10 범위로 제한해 수치 안정성을 확보했습니다. (`GA_algorithm/autoalpha_ga.py`)
+    - AlphaPool 상단에 공유/개인 알파 현황 카드와 최근 개인 알파 목록을 추가하고, 저장 직후 AlphaStore 집계가 자동 새로고침되도록 연동했습니다. (`frontend/src/pages/AlphaPool.tsx`)
+
+[26](20250117):백테스트 파이프라인 실시간 연동 및 상태 모니터링 강화
+    - `/api/backtest`가 세션 사용자의 레지스트리에서 공용·개인 알파를 불러와 직접 팩터를 계산하도록 개선해 CSV에 없는 개인 알파도 즉시 백테스트할 수 있습니다. (`backend/app.py`, `alphas/base.py`, `alphas/transpiler.py`)
+    - 백테스트 진행률·로그를 API 상태 객체에 누적하고, 작업 ID를 보존해 페이지 이동 후에도 폴링을 재개할 수 있게 했습니다. (`backend/app.py`)
+    - 프론트의 Backtest 페이지는 알파 목록을 그룹화하여 표시하고, 진행 카드에 실시간 로그·작업 ID·진행률 바를 추가했습니다. 레이아웃도 수정해 푸터가 가려지지 않고 좌우 패널이 정렬됩니다. (`frontend/src/pages/Backtest.tsx`, `frontend/src/components/common/GlassInput.tsx`, `frontend/src/types/index.ts`)
+
+[27](20251019):GA 결과 백테스트 실데이터 연동 및 누적 수익률 정합성 보완
+    - `calculate_factor_performance` 유틸을 추가해 리밸런싱 주기·보유일수 기반 지표 계산을 공통화하고, 포트폴리오 성과 API가 동일 로직을 사용하도록 리팩토링했습니다. (`backend/app.py`)
+    - `/api/ga/backtest/<task_id>`가 GA가 생성한 표현식을 트랜스파일해 실제 시세 데이터로 백테스트하도록 비동기 처리와 상태 저장을 구현하여, 랜덤 더미 결과 없이 완료 후에도 `/api/backtest/status/<id>`로 재확인할 수 있게 했습니다. (`backend/app.py`)
+    - Backtest 페이지 누적 수익률 그래프가 롤링 CAGR 대신 `cumulative_returns`를 사용해 첫 지점을 항상 0%로 표시하도록 수정했습니다. (`frontend/src/pages/Backtest.tsx`)
+
+[28](20251019):LangChain+MCTS AlphaIncubator 통합 및 대시보드 알파 검색 UX 개선
+    - Ollama korean-qwen 모델을 이용한 LangChain+MCTS 파이프라인을 `/api/incubator/chat`/`session/<id>` 엔드포인트로 구현하고, 오프라인 시 규칙 기반 답변으로 폴백하도록 했습니다. (`backend/app.py`)
+    - GA 결과 백테스트가 실데이터 성과를 반환하도록 공용 `calculate_factor_performance` 로직을 도입하고, Incubator 세션 보관/경로 추적 기능을 추가했습니다. (`backend/app.py`)
+    - AlphaIncubator 페이지를 챗 패널 + 후보 알파 저장 패널 구조로 재작성하여 생성된 알파를 즉시 저장하고 MCTS 탐색 로그를 조회할 수 있게 했습니다. (`frontend/src/pages/AlphaIncubator.tsx`, `frontend/src/components/AlphaFactory/AlphaCandidatePanel.tsx`, `frontend/src/services/api.ts`, `frontend/src/types/index.ts`)
+    - 대시보드 공용 알파 영역을 요약 카드만 남기고, 하단 알파 목록은 검색·페이지네이션(10개 단위) 박스로 개편했습니다. 개인/공용 알파를 통합 정렬 후 검색할 수 있습니다. (`frontend/src/pages/Dashboard.tsx`)
+
+[29](20251019):Ollama 호출 안정화 및 AlphaIncubator 스크롤 개선
+    - `call_local_llm`에 `num_ctx`, `num_predict`, `top_p`를 지정하고 MCTS 탐색 횟수를 2회로 축소해 Ollama 응답 타임아웃을 줄였습니다. (`backend/app.py`)
+    - AlphaIncubator 채팅 패널의 자동 스크롤을 제거해 메시지 입력 시 화면이 임의로 내려가지 않도록 조정했습니다. (`frontend/src/pages/AlphaIncubator.tsx`)

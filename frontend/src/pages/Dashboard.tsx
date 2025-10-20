@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import styled from 'styled-components';
 import { GlassCard } from '../components/common/GlassCard';
 import { theme } from '../styles/theme';
 import {
   Chart as ChartJS,
   ArcElement,
-  Tooltip,
+  Tooltip as ChartTooltip,
   Legend,
   CategoryScale,
   LinearScale,
@@ -13,10 +13,62 @@ import {
 } from 'chart.js';
 import { Doughnut, Bar } from 'react-chartjs-2';
 import { useAuth } from '../contexts/AuthContext';
-import { PortfolioStock, Transaction } from '../types';
+import { Button, Input, Modal, Form, message, Popconfirm, Select, Tag, Tooltip, Pagination } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { GlassButton } from '../components/common/GlassButton';
+import { StoredAlpha, PortfolioStock } from '../types';
+import { fetchUserAlphas, saveUserAlphas as saveUserAlphasApi, deleteUserAlpha as deleteUserAlphaApi } from '../services/api';
 
 // Chart.js 등록
-ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
+ChartJS.register(ArcElement, ChartTooltip, Legend, CategoryScale, LinearScale, BarElement);
+
+const defaultAlphaSummary = {
+  shared_count: 0,
+  private_count: 0,
+  total_count: 0,
+  registry_size: 0,
+};
+
+const normalizeAlpha = (alpha: any): StoredAlpha => {
+  if (!alpha || typeof alpha !== 'object') {
+    return {
+      id: `alpha_${Math.random().toString(36).slice(2)}`,
+      name: 'Unknown Alpha',
+      source: 'shared',
+      provider: 'unknown',
+      description: '',
+      tags: [],
+      metadata: {},
+    };
+  }
+
+  const metadata = (alpha.metadata && typeof alpha.metadata === 'object') ? alpha.metadata : {};
+  const rawTags = alpha.tags ?? metadata.tags ?? [];
+  const tags = Array.isArray(rawTags)
+    ? rawTags.map((tag: any) => String(tag).trim()).filter(Boolean)
+    : [];
+
+  return {
+    id: alpha.id || metadata.id || alpha.name || `alpha_${Math.random().toString(36).slice(2)}`,
+    name: alpha.name || metadata.name || 'Unnamed Alpha',
+    expression: alpha.expression || metadata.expression || '',
+    source: alpha.source || 'shared',
+    provider: alpha.provider || metadata.provider || 'user-defined',
+    owner: alpha.owner || metadata.owner,
+    created_at: alpha.created_at || metadata.created_at,
+    updated_at: alpha.updated_at || metadata.updated_at,
+    description: alpha.description || metadata.description || '',
+    tags,
+    metadata,
+  };
+};
+
+const normalizeAlphaList = (list?: any): StoredAlpha[] => {
+  if (!Array.isArray(list)) {
+    return [];
+  }
+  return list.map(normalizeAlpha);
+};
 
 const DashboardContainer = styled.div`
   display: flex;
@@ -284,15 +336,112 @@ export const Dashboard: React.FC = () => {
     },
   });
   const [portfolioData, setPortfolioData] = useState<PortfolioStock[]>([]);
-  const [transactionData, setTransactionData] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const transactionTypeLabel: Record<string, string> = {
-    '입금': '입금',
-    '출금': '출금',
-    '배당': '배당',
-    '매수': '매수',
-    '매도': '매도',
+  // 알파 관리 상태
+  const [privateAlphas, setPrivateAlphas] = useState<StoredAlpha[]>([]);
+  const [sharedAlphas, setSharedAlphas] = useState<StoredAlpha[]>([]);
+  const [alphaSummary, setAlphaSummary] = useState({ ...defaultAlphaSummary });
+  const [alphaLoading, setAlphaLoading] = useState(false);
+  const [isAlphaModalVisible, setIsAlphaModalVisible] = useState(false);
+  const [editingAlpha, setEditingAlpha] = useState<StoredAlpha | null>(null);
+  const [alphaSearch, setAlphaSearch] = useState('');
+  const [alphaPage, setAlphaPage] = useState(1);
+  const alphaPageSize = 10;
+  const [alphaForm] = Form.useForm();
+
+
+  // 알파 관리 함수들
+  const loadAlphas = useCallback(async () => {
+    try {
+      setAlphaLoading(true);
+      const data = await fetchUserAlphas();
+      setSharedAlphas(normalizeAlphaList(data.shared_alphas));
+      setPrivateAlphas(normalizeAlphaList(data.private_alphas));
+      setAlphaSummary(data.summary ? { ...defaultAlphaSummary, ...data.summary } : { ...defaultAlphaSummary });
+    } catch (error) {
+      console.error('알파 목록 로드 실패:', error);
+      setSharedAlphas([]);
+      setPrivateAlphas([]);
+      setAlphaSummary({ ...defaultAlphaSummary });
+    } finally {
+      setAlphaLoading(false);
+    }
+  }, []);
+
+  const handleSaveAlpha = useCallback(async (values: any) => {
+    if (!user) {
+      message.error('알파를 저장하려면 로그인이 필요합니다.');
+      return;
+    }
+
+    try {
+      const alphaData = {
+        id: editingAlpha?.id,
+        name: values.name,
+        expression: values.expression,
+        description: values.description || '',
+        tags: values.tags || [],
+        fitness: values.fitness !== undefined && values.fitness !== null ? Number(values.fitness) : undefined,
+      };
+
+      const response = await saveUserAlphasApi([alphaData]);
+
+      if (response.success) {
+        message.success('알파가 성공적으로 저장되었습니다.');
+        setIsAlphaModalVisible(false);
+        alphaForm.resetFields();
+        setPrivateAlphas(normalizeAlphaList(response.private_alphas));
+        setSharedAlphas(normalizeAlphaList(response.shared_alphas));
+        setAlphaSummary(response.summary ? { ...defaultAlphaSummary, ...response.summary } : { ...defaultAlphaSummary });
+      } else {
+        message.error(response.error || '알파 저장에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('알파 저장 실패:', error);
+      message.error('알파 저장에 실패했습니다.');
+    }
+  }, [user, editingAlpha]);
+
+  const handleDeleteAlpha = useCallback(async (alphaId: string) => {
+    if (!user) {
+      message.error('알파를 삭제하려면 로그인이 필요합니다.');
+      return;
+    }
+
+    try {
+      const response = await deleteUserAlphaApi(alphaId);
+
+      if (response.success) {
+        message.success('알파가 성공적으로 삭제되었습니다.');
+        setPrivateAlphas(normalizeAlphaList(response.private_alphas));
+        setSharedAlphas(normalizeAlphaList(response.shared_alphas));
+        setAlphaSummary(response.summary ? { ...defaultAlphaSummary, ...response.summary } : { ...defaultAlphaSummary });
+      } else {
+        message.error(response.error || '알파 삭제에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('알파 삭제 실패:', error);
+      message.error('알파 삭제에 실패했습니다.');
+    }
+  }, [user]);
+
+  const handleEditAlpha = (alpha: StoredAlpha) => {
+    setEditingAlpha(alpha);
+    alphaForm.setFieldsValue({
+      name: alpha.name,
+      expression: alpha.expression || alpha.metadata?.expression || '',
+      description: alpha.description || '',
+      tags: alpha.tags || [],
+      fitness: alpha.metadata?.fitness ?? undefined,
+    });
+    setIsAlphaModalVisible(true);
+  };
+
+  const handleAddAlpha = () => {
+    setEditingAlpha(null);
+    alphaForm.resetFields();
+    setIsAlphaModalVisible(true);
   };
 
   useEffect(() => {
@@ -321,15 +470,15 @@ export const Dashboard: React.FC = () => {
             setPortfolioData(portfolioResult.portfolio || []);
           }
 
-          // 거래 내역 로드
-          const transactionResponse = await fetch('/api/csv/user/transactions', {
-            credentials: 'include'
-          });
+          // 거래 내역 로드 (알파 관리에서는 사용하지 않음)
+          // const transactionResponse = await fetch('/api/csv/user/transactions', {
+          //   credentials: 'include'
+          // });
 
-          if (transactionResponse.ok) {
-            const transactionResult = await transactionResponse.json();
-            setTransactionData(transactionResult.transactions || []);
-          }
+          // if (transactionResponse.ok) {
+          //   const transactionResult = await transactionResponse.json();
+          //   setTransactionData(transactionResult.transactions || []);
+          // }
 
           // 자산 데이터 설정
           const totalAssets = parseFloat(investment.total_assets) || 0;
@@ -358,7 +507,8 @@ export const Dashboard: React.FC = () => {
     };
 
     loadDashboardData();
-  }, [user]);
+    loadAlphas(); // 알파 데이터 로드
+  }, [user, loadAlphas]);
 
   // 도넛 차트 데이터 (실제 데이터 기반)
   const doughnutData = {
@@ -538,70 +688,281 @@ export const Dashboard: React.FC = () => {
     </>
   );
 
-  const renderAssetManagement = () => (
-    <>
+  const sortedPrivateAlphas = useMemo(() => {
+    return [...privateAlphas].sort((a, b) => {
+      const aTime = new Date(a.updated_at || a.created_at || 0).getTime();
+      const bTime = new Date(b.updated_at || b.created_at || 0).getTime();
+      return bTime - aTime;
+    });
+  }, [privateAlphas]);
+
+  const combinedAlphas = useMemo(
+    () => [...sortedPrivateAlphas, ...sharedAlphas],
+    [sortedPrivateAlphas, sharedAlphas]
+  );
+
+  const filteredCombinedAlphas = useMemo(() => {
+    const keyword = alphaSearch.trim().toLowerCase();
+    if (!keyword) {
+      return [...combinedAlphas];
+    }
+    return combinedAlphas.filter((alpha) => {
+      const name = alpha.name?.toLowerCase() || '';
+      const expression = (alpha.expression || alpha.metadata?.expression || '').toLowerCase();
+      return name.includes(keyword) || expression.includes(keyword);
+    });
+  }, [combinedAlphas, alphaSearch]);
+
+  const totalAlphaPages = Math.max(1, Math.ceil(filteredCombinedAlphas.length / alphaPageSize));
+
+  useEffect(() => {
+    if (alphaPage > totalAlphaPages) {
+      setAlphaPage(totalAlphaPages);
+    }
+  }, [alphaPage, totalAlphaPages]);
+
+  useEffect(() => {
+    setAlphaPage(1);
+  }, [alphaSearch, combinedAlphas.length]);
+
+  const paginatedCombinedAlphas = useMemo(
+    () =>
+      filteredCombinedAlphas.slice(
+        (alphaPage - 1) * alphaPageSize,
+        alphaPage * alphaPageSize
+      ),
+    [filteredCombinedAlphas, alphaPage, alphaPageSize]
+  );
+
+  const renderAlphaManagement = () => {
+
+    return (
+      <>
+        {/* 알파 관리 헤더 */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: theme.spacing.lg }}>
+        <div>
+          <h2 style={{ margin: 0, color: theme.colors.textPrimary, fontSize: theme.typography.fontSize.h2, fontWeight: 600 }}>
+            알파 관리
+          </h2>
+          <p style={{ margin: `${theme.spacing.sm} 0 0 0`, color: theme.colors.textSecondary }}>
+            공용 알파와 개인 알파를 관리하세요
+          </p>
+        </div>
+        <GlassButton
+          variant="primary"
+          icon={<PlusOutlined />}
+          onClick={handleAddAlpha}
+        >
+          새 알파 추가
+        </GlassButton>
+      </div>
+
       <CardsGrid>
+        {/* 공용 알파 섹션 */}
         <ChartCard>
-          <ChartTitle>현금 자산 상세</ChartTitle>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: theme.spacing.md }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: theme.spacing.lg, background: theme.colors.liquidGlass, border: `1px solid ${theme.colors.liquidGlassBorder}`, borderRadius: '12px' }}>
-              <span style={{ color: theme.colors.textSecondary, fontSize: theme.typography.fontSize.body }}>보유 현금</span>
-              <span style={{ color: theme.colors.textPrimary, fontWeight: 600, fontSize: theme.typography.fontSize.h3 }}>{dashboardData.cash.toLocaleString()} 원</span>
+          <ChartTitle style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
+            <ThunderboltOutlined style={{ color: theme.colors.accentGold }} />
+            공용 알파 라이브러리
+          </ChartTitle>
+          <div
+            style={{
+              padding: theme.spacing.lg,
+              background: theme.colors.liquidGlass,
+              border: `1px solid ${theme.colors.liquidGlassBorder}`,
+              borderRadius: '12px',
+              textAlign: 'center',
+            }}
+          >
+            <div
+              style={{
+                color: theme.colors.textSecondary,
+                fontSize: theme.typography.fontSize.body,
+                marginBottom: theme.spacing.sm,
+              }}
+            >
+              저장된 공용 알파
+            </div>
+            <div
+              style={{
+                color: theme.colors.textPrimary,
+                fontSize: theme.typography.fontSize.h3,
+                fontWeight: 600,
+              }}
+            >
+              {sharedAlphas.length}개 사용 가능
             </div>
           </div>
         </ChartCard>
 
+        {/* 개인 알파 섹션 */}
         <ChartCard>
-          <ChartTitle>주식 자산 상세</ChartTitle>
+          <ChartTitle style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
+            <EyeOutlined style={{ color: theme.colors.accentPrimary }} />
+            내 알파 컬렉션
+          </ChartTitle>
           <div style={{ display: 'flex', flexDirection: 'column', gap: theme.spacing.md }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: theme.spacing.lg, background: theme.colors.liquidGlass, border: `1px solid ${theme.colors.liquidGlassBorder}`, borderRadius: '12px' }}>
-              <span style={{ color: theme.colors.textSecondary, fontSize: theme.typography.fontSize.body }}>총 평가금액</span>
-              <span style={{ color: theme.colors.textPrimary, fontWeight: 600, fontSize: theme.typography.fontSize.h3 }}>{dashboardData.stocks.toLocaleString()} 원</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: theme.spacing.lg, background: theme.colors.liquidGoldGradient, border: `1px solid ${theme.colors.liquidGoldBorder}`, borderRadius: '12px' }}>
-              <span style={{ color: theme.colors.textPrimary, fontWeight: 600, fontSize: theme.typography.fontSize.body }}>평가손익</span>
-              <span style={{ color: theme.colors.textPrimary, fontWeight: 600, fontSize: theme.typography.fontSize.h3 }}>+{dashboardData.changes.stocks.toLocaleString()} 원 (+{dashboardData.changes.stocks_percent}%)</span>
+            <div style={{
+              padding: theme.spacing.lg,
+              background: theme.colors.liquidGoldGradient,
+              border: `1px solid ${theme.colors.liquidGoldBorder}`,
+              borderRadius: '12px',
+              textAlign: 'center'
+            }}>
+              <div style={{ color: theme.colors.textPrimary, fontSize: theme.typography.fontSize.body, marginBottom: theme.spacing.sm, fontWeight: 600 }}>
+                저장된 개인 알파
+              </div>
+              <div style={{ color: theme.colors.textPrimary, fontSize: theme.typography.fontSize.h3, fontWeight: 700 }}>
+                {alphaSummary.private_count || privateAlphas.length}개
+              </div>
             </div>
           </div>
         </ChartCard>
       </CardsGrid>
 
+      {/* 알파 목록 */}
       <ChartCard>
-        <ChartTitle>최근 거래 내역</ChartTitle>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: theme.spacing.sm }}>
-          {loading ? (
+        <ChartTitle>알파 목록</ChartTitle>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: theme.spacing.md }}>
+          <Input.Search
+            placeholder="알파 이름 또는 수식을 검색하세요"
+            allowClear
+            value={alphaSearch}
+            onChange={(event) => setAlphaSearch(event.target.value)}
+            onSearch={(value) => setAlphaSearch(value)}
+            style={{ borderRadius: '12px' }}
+          />
+
+          {alphaLoading ? (
             <div style={{ textAlign: 'center', padding: theme.spacing.xl, color: theme.colors.textSecondary }}>
-              거래 내역을 불러오는 중...
+              알파 목록을 불러오는 중...
             </div>
-          ) : transactionData.length > 0 ? (
-            transactionData.slice(0, 5).map((transaction, idx) => (
-              <TransactionItem key={idx}>
-                <div>
-                  <div style={{ color: theme.colors.textPrimary, fontWeight: 600, fontSize: theme.typography.fontSize.body }}>
-                    {transactionTypeLabel[transaction.transaction_type] || '거래'}
-                  </div>
-                  <div style={{ color: theme.colors.textSecondary, fontSize: theme.typography.fontSize.caption, marginTop: '4px' }}>
-                    {new Date(transaction.transaction_date).toLocaleDateString()}
-                  </div>
-                </div>
-                <div style={{
-                  color: transaction.amount > 0 ? theme.colors.accentGold : theme.colors.textSecondary,
-                  fontWeight: 600,
-                  fontSize: theme.typography.fontSize.h3
+          ) : filteredCombinedAlphas.length > 0 ? (
+            paginatedCombinedAlphas.map(alpha => {
+              const fitnessValue =
+                typeof alpha.metadata?.fitness === 'number'
+                  ? Number(alpha.metadata?.fitness)
+                  : null;
+              const tags = Array.isArray(alpha.tags) ? alpha.tags : [];
+              const expressionDisplay =
+                alpha.expression ||
+                alpha.metadata?.expression ||
+                alpha.metadata?.python_source ||
+                '수식 정보 없음';
+
+              return (
+                <div key={alpha.id} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: theme.spacing.lg,
+                  background: alpha.source === 'private' ? theme.colors.liquidGoldGradient : theme.colors.liquidGlass,
+                  border: `1px solid ${alpha.source === 'private' ? theme.colors.liquidGoldBorder : theme.colors.liquidGlassBorder}`,
+                  borderRadius: '12px',
+                  transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
                 }}>
-                  {transaction.amount > 0 ? '+' : ''}{Number(transaction.amount).toLocaleString()} 원
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm, marginBottom: theme.spacing.sm }}>
+                      <span style={{
+                        color: theme.colors.textPrimary,
+                        fontWeight: 600,
+                        fontSize: theme.typography.fontSize.body
+                      }}>
+                        {alpha.name}
+                      </span>
+                      <Tag color={alpha.source === 'private' ? 'gold' : 'blue'}>
+                        {alpha.source === 'private' ? '개인' : '공용'}
+                      </Tag>
+                      {fitnessValue !== null && Number.isFinite(fitnessValue) && (
+                        <Tag color="green">
+                          적합도: {fitnessValue.toFixed(3)}
+                        </Tag>
+                      )}
+                    </div>
+                    <div style={{
+                      color: theme.colors.textSecondary,
+                      fontSize: theme.typography.fontSize.caption,
+                      marginBottom: theme.spacing.sm
+                    }}>
+                      {alpha.description || '설명이 없습니다.'}
+                    </div>
+                    <div style={{
+                      fontFamily: 'monospace',
+                      fontSize: theme.typography.fontSize.caption,
+                      color: theme.colors.accentGold,
+                      background: theme.colors.backgroundTertiary,
+                      padding: theme.spacing.sm,
+                      borderRadius: '6px',
+                      maxWidth: '400px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      wordBreak: 'break-all'
+                    }}>
+                      {expressionDisplay}
+                    </div>
+                    {tags.length > 0 && (
+                      <div style={{ marginTop: theme.spacing.sm, display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        {tags.map((tag, idx) => (
+                          <Tag key={idx} style={{ fontSize: '11px' }}>
+                            {tag}
+                          </Tag>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {alpha.source === 'private' && (
+                    <div style={{ display: 'flex', gap: theme.spacing.sm }}>
+                      <Tooltip title="편집">
+                        <Button
+                          type="text"
+                          icon={<EditOutlined />}
+                          onClick={() => handleEditAlpha(alpha)}
+                          style={{ color: theme.colors.textSecondary }}
+                        />
+                      </Tooltip>
+                      <Popconfirm
+                        title="알파 삭제"
+                        description="정말로 이 알파를 삭제하시겠습니까?"
+                        onConfirm={() => handleDeleteAlpha(alpha.id)}
+                        okText="삭제"
+                        cancelText="취소"
+                      >
+                        <Tooltip title="삭제">
+                          <Button
+                            type="text"
+                            danger
+                            icon={<DeleteOutlined />}
+                          />
+                        </Tooltip>
+                      </Popconfirm>
+                    </div>
+                  )}
                 </div>
-              </TransactionItem>
-            ))
+              );
+            })
           ) : (
             <div style={{ textAlign: 'center', padding: theme.spacing.xl, color: theme.colors.textSecondary }}>
-              거래 내역이 없습니다
+              <ThunderboltOutlined style={{ fontSize: '48px', marginBottom: theme.spacing.md, opacity: 0.5 }} />
+              <div>아직 알파가 없습니다</div>
+              <div style={{ fontSize: theme.typography.fontSize.caption, marginTop: theme.spacing.sm }}>
+                새 알파를 추가하거나 공용 알파를 활용해보세요
+              </div>
             </div>
           )}
+
+          <Pagination
+            current={alphaPage}
+            pageSize={alphaPageSize}
+            total={filteredCombinedAlphas.length}
+            onChange={(page) => setAlphaPage(page)}
+            showSizeChanger={false}
+            hideOnSinglePage
+          />
         </div>
       </ChartCard>
-    </>
-  );
+      </>
+    );
+  };
 
   const renderStockManagement = () => (
     <>
@@ -777,7 +1138,7 @@ export const Dashboard: React.FC = () => {
           내 자산 한눈에 보기
         </DynamicIslandButton>
         <DynamicIslandButton $active={activeTab === 1} onClick={() => setActiveTab(1)}>
-          자산 관리
+          알파 관리
         </DynamicIslandButton>
         <DynamicIslandButton $active={activeTab === 2} onClick={() => setActiveTab(2)}>
           보유 주식 관리
@@ -786,9 +1147,155 @@ export const Dashboard: React.FC = () => {
 
       <TabContent>
         {activeTab === 0 && renderAssetOverview()}
-        {activeTab === 1 && renderAssetManagement()}
+        {activeTab === 1 && renderAlphaManagement()}
         {activeTab === 2 && renderStockManagement()}
       </TabContent>
+
+      {/* 알파 추가/수정 모달 */}
+      <Modal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.sm }}>
+            <ThunderboltOutlined style={{ color: theme.colors.accentGold }} />
+            {editingAlpha ? '알파 수정' : '새 알파 추가'}
+          </div>
+        }
+        open={isAlphaModalVisible}
+        onCancel={() => {
+          setIsAlphaModalVisible(false);
+          alphaForm.resetFields();
+        }}
+        footer={null}
+        width={600}
+        centered
+        bodyStyle={{
+          background: theme.colors.backgroundSecondary,
+          borderRadius: '16px',
+        }}
+      >
+        <Form
+          form={alphaForm}
+          layout="vertical"
+          onFinish={handleSaveAlpha}
+          style={{ marginTop: theme.spacing.lg }}
+        >
+          <Form.Item
+            name="name"
+            label="알파 이름"
+            rules={[
+              { required: true, message: '알파 이름을 입력해주세요' },
+              { min: 2, message: '알파 이름은 최소 2자 이상이어야 합니다' }
+            ]}
+          >
+            <Input
+              placeholder="예: 모멘텀 전략, 가치 투자"
+              style={{
+                background: theme.colors.liquidGlass,
+                border: `1px solid ${theme.colors.liquidGlassBorder}`,
+                borderRadius: '8px',
+                color: theme.colors.textPrimary,
+              }}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="expression"
+            label="알파 표현식"
+            rules={[
+              { required: true, message: '알파 표현식을 입력해주세요' },
+              {
+                pattern: /^[a-zA-Z0-9\s_(),\-+*/.]+$/,
+                message: '올바른 표현식을 입력해주세요'
+              }
+            ]}
+            help="예: ts_rank(close, 20), sma(volume, 10) 등"
+          >
+            <Input.TextArea
+              rows={3}
+              placeholder="ts_rank(close, 20), sma(volume, 10) 등"
+              style={{
+                background: theme.colors.liquidGlass,
+                border: `1px solid ${theme.colors.liquidGlassBorder}`,
+                borderRadius: '8px',
+                color: theme.colors.textPrimary,
+                fontFamily: 'monospace',
+              }}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="description"
+            label="설명"
+          >
+            <Input.TextArea
+              rows={2}
+              placeholder="이 알파에 대한 설명을 입력하세요"
+              style={{
+                background: theme.colors.liquidGlass,
+                border: `1px solid ${theme.colors.liquidGlassBorder}`,
+                borderRadius: '8px',
+                color: theme.colors.textPrimary,
+              }}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="fitness"
+            label="적합도 (선택사항)"
+            help="GA에서 계산된 적합도 값 (0.0 ~ 1.0)"
+          >
+            <Input
+              type="number"
+              min={0}
+              max={1}
+              step={0.001}
+              placeholder="0.85"
+              style={{
+                background: theme.colors.liquidGlass,
+                border: `1px solid ${theme.colors.liquidGlassBorder}`,
+                borderRadius: '8px',
+                color: theme.colors.textPrimary,
+              }}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="tags"
+            label="태그 (선택사항)"
+            help="쉼표로 구분하여 입력하세요"
+          >
+            <Select
+              mode="tags"
+              placeholder="태그를 입력하세요 (예: 모멘텀, 가치, 기술적)"
+              style={{
+                background: theme.colors.liquidGlass,
+                borderRadius: '8px',
+              }}
+              dropdownStyle={{
+                background: theme.colors.backgroundSecondary,
+                border: `1px solid ${theme.colors.border}`,
+              }}
+            />
+          </Form.Item>
+
+          <div style={{ display: 'flex', gap: theme.spacing.md, justifyContent: 'flex-end', marginTop: theme.spacing.xl }}>
+            <GlassButton
+              variant="secondary"
+              onClick={() => {
+                setIsAlphaModalVisible(false);
+                alphaForm.resetFields();
+              }}
+            >
+              취소
+            </GlassButton>
+            <GlassButton
+              variant="primary"
+              onClick={() => alphaForm.submit()}
+            >
+              {editingAlpha ? '수정' : '추가'}
+            </GlassButton>
+          </div>
+        </Form>
+      </Modal>
     </DashboardContainer>
   );
 };

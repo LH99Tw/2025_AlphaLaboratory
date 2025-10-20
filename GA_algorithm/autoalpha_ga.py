@@ -93,6 +93,33 @@ from Alphas import (
 # ===============================
 
 # 연산자 메타 정의
+def _safe_divide(a: Union[pd.DataFrame, pd.Series, np.ndarray, float, int],
+                 b: Union[pd.DataFrame, pd.Series, np.ndarray, float, int]) -> Union[pd.DataFrame, pd.Series, np.ndarray]:
+    """
+    Pandas Series/DataFrame 또는 numpy 배열을 안전하게 나눕니다.
+    - 0 나눗셈 및 inf 값을 NaN으로 정리
+    - 입력 타입을 유지해 반환
+    """
+    if hasattr(a, "align") and hasattr(b, "align"):
+        a_aligned, b_aligned = a.align(b, join="outer")
+    else:
+        a_aligned, b_aligned = a, b
+
+    a_vals = a_aligned.values if hasattr(a_aligned, "values") else np.asarray(a_aligned)
+    b_vals = b_aligned.values if hasattr(b_aligned, "values") else np.asarray(b_aligned)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        out = np.divide(a_vals, b_vals)
+    out = np.where(np.isfinite(out), out, np.nan)
+
+    if hasattr(a_aligned, "index"):
+        if hasattr(a_aligned, "columns"):
+            columns = a_aligned.columns if hasattr(a_aligned, "columns") else getattr(b_aligned, "columns", None)
+            return pd.DataFrame(out, index=a_aligned.index, columns=columns)
+        return pd.Series(out, index=a_aligned.index)
+    return out
+
+
 UNARY_OPS = {
     "rank": {"fn": rank, "params": []},
     "ts_rank": {"fn": ts_rank, "params": ["window"]},
@@ -111,7 +138,7 @@ BINARY_OPS = {
     "add": {"symbol": "+", "fn": lambda a, b: a + b},
     "sub": {"symbol": "-", "fn": lambda a, b: a - b},
     "mul": {"symbol": "*", "fn": lambda a, b: a * b},
-    "div": {"symbol": "/", "fn": lambda a, b: (a / (b.replace(0, np.nan) if hasattr(b, 'replace') else b)).replace([np.inf, -np.inf], np.nan)},
+    "div": {"symbol": "/", "fn": _safe_divide},
     "min": {"symbol": "min", "fn": lambda a, b: pd.DataFrame(np.minimum(a.values, b.values), index=a.index, columns=a.columns) if hasattr(a, 'index') and hasattr(b, 'index') else np.minimum(a, b)},
     "max": {"symbol": "max", "fn": lambda a, b: pd.DataFrame(np.maximum(a.values, b.values), index=a.index, columns=a.columns) if hasattr(a, 'index') and hasattr(b, 'index') else np.maximum(a, b)},
     "correlation": {"symbol": "correlation", "fn": correlation, "params": ["window"]},
@@ -193,12 +220,27 @@ class Node:
                     w = int(node.params.get("window", 10))
                     def f(ctx: Alphas):
                         a = left_f(ctx); b = right_f(ctx)
-                        # correlation 형상 검증: 동일한 shape의 DataFrame/Series만 허용
-                        if hasattr(a, 'shape') and hasattr(b, 'shape'):
-                            if a.shape != b.shape:
-                                # 형상이 다르면 0 행렬 반환
-                                return pd.DataFrame(0, index=a.index if hasattr(a, 'index') else range(len(a)), 
-                                                  columns=a.columns if hasattr(a, 'columns') else [0])
+                        base_index = getattr(ctx.close, "index", None)
+
+                        # ctx.close가 시리즈인지 데이터프레임인지 확인
+                        if hasattr(ctx.close, "columns"):
+                            base_columns = ctx.close.columns
+                        else:
+                            # 시리즈인 경우 단일 컬럼으로 처리
+                            base_columns = [ctx.close.name] if hasattr(ctx.close, "name") else None
+
+                        try:
+                            if hasattr(a, "align") and hasattr(b, "align"):
+                                a, b = a.align(b, join="inner", axis=0)
+                                if hasattr(a, "columns") and hasattr(b, "columns"):
+                                    a, b = a.align(b, join="inner", axis=1)
+                        except Exception:
+                            pass
+
+                        if hasattr(a, "empty") and a.empty:
+                            return pd.DataFrame(0, index=base_index, columns=base_columns)
+                        if hasattr(b, "empty") and b.empty:
+                            return pd.DataFrame(0, index=base_index, columns=base_columns)
                         try:
                             result = fn_meta["fn"](a, b, w)
                             # correlation 결과 안전성 확보
@@ -207,8 +249,7 @@ class Node:
                             return result
                         except:
                             # correlation 계산 실패 시 0 행렬 반환
-                            return pd.DataFrame(0, index=a.index if hasattr(a, 'index') else range(len(a)), 
-                                              columns=a.columns if hasattr(a, 'columns') else [0])
+                            return pd.DataFrame(0, index=base_index, columns=base_columns)
                     return f
 
                 def f(ctx: Alphas):
@@ -319,7 +360,7 @@ class DefaultSearchSpace:
         Node(op="sub", left=Node(op="terminal", terminal_name="high"),  right=Node(op="terminal", terminal_name="low")),
     ]
 
-    UNARY_POOL = ["rank", "ts_rank", "delta", "delay", "sma", "stddev"]
+    UNARY_POOL = ["rank", "ts_rank", "delta", "delay", "sma", "stddev", "ts_max", "ts_min", "ts_argmax", "ts_argmin", "decay_linear"]
     BINARY_POOL = ["add", "sub", "mul", "div", "min", "max", "correlation"]
 
     @classmethod
@@ -394,6 +435,7 @@ def compute_factor_turnover(factor_df: pd.DataFrame) -> float:
     """
     팩터 순위 기반 회전율을 계산합니다.
     - 연속 일자의 순위 변화량 평균을 통해 안정성을 측정합니다.
+    - 순위 변화 총합을 유효 종목 수로 정규화하여 0~2 범위를 기대합니다.
     """
     if factor_df.empty:
         return 0.0
@@ -417,18 +459,21 @@ def first_pc_vector(A: pd.DataFrame) -> np.ndarray:
     """
     PCA의 첫 번째 주성분 벡터를 반환합니다.
     - 결측/무한값은 0으로 정리 후 평균 제거
+    - 자산 축(컬럼) 로딩 벡터를 비교 대상으로 사용
     - SVD 실패 시 단위 벡터로 대체
     """
     X = A.values
     X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
     X = X - X.mean(axis=0, keepdims=True)
     try:
-        U, S, Vt = np.linalg.svd(X, full_matrices=False)
-        v = U[:, 0]
+        _, _, Vt = np.linalg.svd(X, full_matrices=False)
+        v = Vt[0] if Vt.size > 0 else np.ones(X.shape[1], dtype=float)
         v = v / (np.linalg.norm(v) + 1e-12)
         return v
     except np.linalg.LinAlgError:
-        v = np.ones(X.shape[0], dtype=float)
+        if X.shape[1] == 0:
+            return np.array([1.0])
+        v = np.ones(X.shape[1], dtype=float)
         v /= np.linalg.norm(v) + 1e-12
         return v
 
@@ -448,12 +493,12 @@ def random_unary(rng: random.Random, child: Node) -> Node:
     """무작위 단항 연산자 노드 생성(윈도우/기간 파라미터 포함)"""
     op = rng.choice(DefaultSearchSpace.UNARY_POOL)
     params = {}
-    if op in ("ts_rank", "sma", "stddev"):
+    if op in ("ts_rank", "sma", "stddev", "ts_max", "ts_min", "ts_argmax", "ts_argmin"):
         params["window"] = DefaultSearchSpace.random_window(rng)
     if op in ("delta", "delay"):
         params["period"] = DefaultSearchSpace.random_window(rng)
-    if op in ("ts_max", "ts_min", "ts_argmax", "ts_argmin", "decay_linear"):
-        params["window"] = DefaultSearchSpace.random_window(rng)
+    if op == "decay_linear":
+        params["period"] = DefaultSearchSpace.random_window(rng)
     return Node(op=op, left=child.copy(), params=params)
 
 def random_binary(rng: random.Random, left: Node, right: Node) -> Node:
@@ -532,7 +577,7 @@ def crossover(rng: random.Random, a: Node, b: Node) -> Tuple[Node, Node]:
     return a, b
 
 
-@dataclass
+@dataclass(eq=False)
 class Individual:
     """개체 표현: 수식 트리 + 적합도(단면 IC) + PCA 벡터/팩터행렬 캐시"""
     tree: Node
@@ -706,9 +751,11 @@ class AutoAlphaGA:
         for horizon, weight in self.metric_weights["horizons"].items():
             agg_ic += weight * ic_by_horizon.get(horizon, 0.0)
 
-        ic_ir = agg_ic / (ic_volatility + 1e-6)
+        vol_floor = max(float(ic_volatility), 0.02)
+        ic_ir = agg_ic / vol_floor
         if not np.isfinite(ic_ir):
             ic_ir = 0.0
+        ic_ir = float(np.clip(ic_ir, -10.0, 10.0))
 
         turnover = compute_factor_turnover(factor_df)
         coverage = 0.0
@@ -889,7 +936,7 @@ class AutoAlphaGA:
         """
         cand: List[Individual] = []
         roots = DefaultSearchSpace.ROOT_TEMPLATES
-        while len(cand) < size*warmstart_k and len(cand) < size*2:
+        while len(cand) < size*warmstart_k:
             root = random.choice(roots).copy()
             while root.depth() < depth:
                 if self.rng.random() < 0.5:

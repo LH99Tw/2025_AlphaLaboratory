@@ -241,7 +241,7 @@ export const AlphaListPanel: React.FC<AlphaListPanelProps> = ({ alphas, onSave, 
               </AlphaExpression>
 
               <AlphaFitness>
-                {alpha.fitness.toFixed(4)}
+                {typeof alpha.fitness === 'number' ? alpha.fitness.toFixed(4) : '—'}
               </AlphaFitness>
 
               {editingId === alpha.id ? (
@@ -280,4 +280,3 @@ export const AlphaListPanel: React.FC<AlphaListPanelProps> = ({ alphas, onSave, 
     </PanelContainer>
   );
 };
-

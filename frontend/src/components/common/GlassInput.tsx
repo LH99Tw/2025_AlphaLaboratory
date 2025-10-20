@@ -11,6 +11,10 @@ interface GlassInputProps {
   icon?: React.ReactNode;
   className?: string;
   onKeyPress?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  name?: string;
 }
 
 const InputWrapper = styled.div`
@@ -60,7 +64,11 @@ export const GlassInput: React.FC<GlassInputProps> = ({
   disabled = false,
   icon,
   className,
-  onKeyPress
+  onKeyPress,
+  min,
+  max,
+  step,
+  name,
 }) => {
   return (
     <InputWrapper className={className}>
@@ -71,9 +79,12 @@ export const GlassInput: React.FC<GlassInputProps> = ({
         type={type}
         disabled={disabled}
         onKeyPress={onKeyPress}
+        min={min}
+        max={max}
+        step={step}
+        name={name}
       />
       {icon && <IconWrapper>{icon}</IconWrapper>}
     </InputWrapper>
   );
 };
-

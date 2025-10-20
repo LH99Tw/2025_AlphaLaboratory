@@ -1,10 +1,12 @@
 import axios from 'axios';
-import type { 
-  BacktestParams, 
-  BacktestStatus, 
-  GAParams, 
+import type {
+  BacktestParams,
+  BacktestStatus,
+  GAParams,
   ApiResponse,
-  ChatMessage
+  ChatMessage,
+  IncubatorChatResponse,
+  IncubatorMessage,
 } from '../types';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
@@ -25,7 +27,7 @@ export const checkHealth = async () => {
 };
 
 // 📈 백테스트 API
-export const runBacktest = async (params: BacktestParams): Promise<ApiResponse> => {
+export const runBacktest = async (params: BacktestParams): Promise<ApiResponse & { task_id?: string; status_url?: string }> => {
   const response = await api.post('/api/backtest', params, { withCredentials: true });
   return response.data;
 };
@@ -73,6 +75,22 @@ export const chatWithAgent = async (message: string) => {
   return response.data;
 };
 
+// LangChain + MCTS Incubator API
+export const postIncubatorChat = async (payload: {
+  message: string;
+  intent?: string;
+  session_id?: string;
+  history?: IncubatorMessage[];
+}): Promise<IncubatorChatResponse> => {
+  const response = await api.post('/api/incubator/chat', payload, { withCredentials: true });
+  return response.data;
+};
+
+export const fetchIncubatorSession = async (sessionId: string): Promise<IncubatorChatResponse> => {
+  const response = await api.get(`/api/incubator/session/${sessionId}`, { withCredentials: true });
+  return response.data;
+};
+
 // Alpha Incubator GA API
 export const startGAEvolution = async (params: {
   population_size?: number;
@@ -110,8 +128,35 @@ export const getGAStatus = async (taskId: string) => {
   return response.data;
 };
 
-export const saveUserAlphas = async (alphas: Array<{ name: string; expression: string; fitness: number }>) => {
-  const response = await api.post('/api/user-alpha/save', { alphas }, { withCredentials: true });
+export const fetchUserAlphas = async () => {
+  const response = await api.get('/api/user-alpha/list', { withCredentials: true });
+  return response.data;
+};
+
+export const saveUserAlphas = async (alphas: Array<{ id?: string; name: string; expression: string; description?: string; tags?: string[]; fitness?: number }>) => {
+  const payload = alphas.map(alpha => {
+    const fitness = typeof alpha.fitness === 'number' && Number.isFinite(alpha.fitness)
+      ? alpha.fitness
+      : undefined;
+
+    return {
+      id: alpha.id,
+      name: alpha.name,
+      expression: alpha.expression,
+      description: alpha.description ?? '',
+      tags: alpha.tags ?? [],
+      metadata: {
+        fitness,
+      },
+    };
+  });
+
+  const response = await api.post('/api/user-alpha/save', { alphas: payload }, { withCredentials: true });
+  return response.data;
+};
+
+export const deleteUserAlpha = async (alphaId: string) => {
+  const response = await api.delete(`/api/user-alpha/delete/${alphaId}`, { withCredentials: true });
   return response.data;
 };
 

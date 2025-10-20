@@ -25,7 +25,8 @@ const Container = styled.div`
   display: flex;
   flex-direction: column;
   gap: ${theme.spacing.xl};
-  height: calc(100vh - 200px);
+  min-height: calc(100vh - 200px);
+  padding-bottom: ${theme.spacing.xxl};
 `;
 
 const TopSection = styled.div`
@@ -52,6 +53,13 @@ const FlowSection = styled.div`
   display: flex;
   flex-direction: column;
   gap: ${theme.spacing.md};
+`;
+
+const AlphaListWrapper = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: ${theme.spacing.lg};
+  width: 100%;
 `;
 
 const FlowContainer = styled.div`
@@ -314,6 +322,11 @@ export const AlphaPool: React.FC = () => {
 
           setNodeStates(prev => ({
             ...prev,
+            'ga-node': {
+              ...prev['ga-node'],
+              status: 'completed',
+              completed: true,
+            },
             'evolution-node': {
               ...prev['evolution-node'],
               status: 'completed',
@@ -356,6 +369,7 @@ export const AlphaPool: React.FC = () => {
 
           setNodeStates(prev => ({
             ...prev,
+            'ga-node': { ...prev['ga-node'], status: 'failed' },
             'evolution-node': { ...prev['evolution-node'], status: 'failed' },
           }));
 
@@ -398,7 +412,7 @@ export const AlphaPool: React.FC = () => {
         end_date: gaConfig.endDate || '',
         population_size: gaConfig.populationSize || 50,
         generations: gaConfig.generations || 20,
-        max_alphas: gaConfig.maxAlphas || 5,
+        max_alphas: gaConfig.maxAlphas || gaConfig.maxDepth || 10,
         max_depth: gaConfig.maxDepth || 10,
         rebalancing_frequency: gaConfig.rebalancing_frequency || 'monthly',
         transaction_cost: gaConfig.transaction_cost || 0.001,
@@ -430,7 +444,15 @@ export const AlphaPool: React.FC = () => {
       const data = await saveUserAlphas(selectedAlphas);
 
       if (data.success) {
-        antdMessage.success(`${selectedAlphas.length}개의 알파가 저장되었습니다!`);
+        setAlphaList(prev =>
+          prev.map(alpha =>
+            selectedAlphas.some(sel => sel.id === alpha.id)
+              ? { ...alpha, selected: false }
+              : alpha
+          )
+        );
+        const savedCount = data.summary?.private_count ?? selectedAlphas.length;
+        antdMessage.success(`${selectedAlphas.length}개의 알파가 저장되었습니다! (총 ${savedCount}개 보유)`);
       } else {
         throw new Error(data.error || '저장 실패');
       }
@@ -487,7 +509,7 @@ export const AlphaPool: React.FC = () => {
     <Container>
       <TopSection>
         <div>
-          <Title>알파 풀</Title>
+          <Title>Alpha Pool</Title>
           <Description>
             유전 알고리즘 기반 알파 팩터 생성 시스템
           </Description>
@@ -518,15 +540,17 @@ export const AlphaPool: React.FC = () => {
             <Controls />
           </ReactFlow>
         </FlowContainer>
+      </FlowSection>
 
-        {alphaList.length > 0 && (
+      {alphaList.length > 0 && (
+        <AlphaListWrapper>
           <AlphaListPanel
             alphas={alphaList}
             onChange={setAlphaList}
             onSave={handleSaveAlphas}
           />
-        )}
-      </FlowSection>
+        </AlphaListWrapper>
+      )}
 
       <NodeConfigModal
         visible={modalVisible}

@@ -14,6 +14,7 @@ export interface BacktestParams {
   rebalancing_frequency: 'daily' | 'weekly' | 'monthly' | 'quarterly';
   transaction_cost: number;
   quantile: number;
+  max_factors?: number;
 }
 
 // 📊 백테스트 결과
@@ -27,6 +28,7 @@ export interface BacktestResult {
   volatility: number;
   total_return?: number;
   cumulative_returns?: Array<{ date: string; value: number }>;
+  cagr_series?: Array<{ date: string; value: number }>;
 }
 
 // 💼 포트폴리오 종목 (실제 데이터베이스 구조)
@@ -122,6 +124,46 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
+export interface IncubatorMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp?: string;
+  id?: string;
+  pending?: boolean;
+}
+
+export interface AlphaCandidate {
+  id: string;
+  name: string;
+  expression: string;
+  rationale: string;
+  score: number;
+  path?: string[];
+  selected: boolean;
+}
+
+export interface MctsTraceEntry {
+  iteration: number;
+  prompt: string;
+  raw_response: string;
+  scored_expression: string;
+  score: number;
+  reason?: string;
+}
+
+export interface IncubatorChatResponse {
+  success: boolean;
+  session_id: string;
+  intent: string;
+  reply: string;
+  error?: string;
+  candidates?: AlphaCandidate[];
+  mcts_trace?: MctsTraceEntry[];
+  warnings?: string[];
+  history: IncubatorMessage[];
+  llm_provider?: string;
+}
+
 // 🧬 GA 파라미터
 export interface GAParams {
   start_date: string;
@@ -148,6 +190,8 @@ export interface ApiResponse<T = any> {
   data?: T;
   error?: string;
   message?: string;
+  task_id?: string;
+  status_url?: string;
 }
 
 // 🔄 백테스트 상태
@@ -156,4 +200,58 @@ export interface BacktestStatus {
   progress: number;
   results?: Record<string, BacktestResult>;
   error?: string;
+  logs?: string[];
+  parameters?: Record<string, any>;
+}
+
+// 📊 알파 저장소 타입 (백엔드 호환용)
+export interface StoredAlpha {
+  id: string;
+  name: string;
+  expression?: string;
+  source: string;
+  provider: string;
+  owner?: string;
+  created_at?: string;
+  updated_at?: string;
+  description?: string;
+  tags?: string[];
+  metadata?: {
+    fitness?: number | null;
+    transpiler_version?: string;
+    python_source?: string;
+    expression?: string;
+    created_at?: string;
+    updated_at?: string;
+    [key: string]: any;
+  };
+}
+
+// 📊 알파 정의 타입
+export interface AlphaDefinition {
+  name: string;
+  compute: (dataset: any) => any;
+  source: string;
+  provider: string;
+  owner?: string;
+  description: string;
+  version: string;
+  tags: string[];
+  metadata: Record<string, any>;
+}
+
+// 📝 알파 추가 요청 타입
+export interface AddAlphaRequest {
+  name: string;
+  expression: string;
+  description?: string;
+  tags?: string[];
+  metadata?: {
+    fitness?: number;
+  };
+}
+
+// 📝 알파 수정 요청 타입
+export interface UpdateAlphaRequest extends AddAlphaRequest {
+  id: string;
 }

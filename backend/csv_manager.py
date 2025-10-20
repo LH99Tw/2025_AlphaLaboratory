@@ -177,24 +177,34 @@ class CSVManager:
         """사용자 인증을 수행합니다."""
         try:
             users_df = pd.read_csv(self.users_file, encoding='utf-8-sig')
-            password_hash = self._hash_password(password)
-            
+
             # 사용자명 또는 이메일로 검색
             user = users_df[
                 ((users_df['username'] == username) | (users_df['email'] == username)) &
-                (users_df['password_hash'] == password_hash) &
                 (users_df['is_active'] == True)
             ]
-            
+
             if not user.empty:
-                user_id = user.iloc[0]['user_id']
-                
-                # 마지막 로그인 시간 업데이트
-                users_df.loc[users_df['user_id'] == user_id, 'last_login'] = datetime.now().isoformat()
-                users_df.to_csv(self.users_file, index=False, encoding='utf-8-sig')
-                
-                logger.info(f"사용자 인증 성공: {username} ({user_id})")
-                return user_id
+                stored_password = user.iloc[0]['password_hash']
+
+                # 해시 비교 시도
+                password_hash = self._hash_password(password)
+                if stored_password == password_hash:
+                    user_id = user.iloc[0]['user_id']
+                    # 마지막 로그인 시간 업데이트
+                    users_df.loc[users_df['user_id'] == user_id, 'last_login'] = datetime.now().isoformat()
+                    users_df.to_csv(self.users_file, index=False, encoding='utf-8-sig')
+                    return user_id
+
+                # 평문 비교 시도 (개발 환경용)
+                if stored_password == password:
+                    user_id = user.iloc[0]['user_id']
+                    # 마지막 로그인 시간 업데이트
+                    users_df.loc[users_df['user_id'] == user_id, 'last_login'] = datetime.now().isoformat()
+                    users_df.to_csv(self.users_file, index=False, encoding='utf-8-sig')
+
+                    logger.info(f"사용자 인증 성공: {username} ({user_id})")
+                    return user_id
             
             logger.warning(f"사용자 인증 실패: {username}")
             return None
