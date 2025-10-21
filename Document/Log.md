@@ -209,6 +209,13 @@
     - **진화 과정**: 진행률 Progress Bar, 실시간 상태 표시
     - **최종 결과**: 생성된 알파 요약 정보, 상위 3개 알파 미리보기
 
+[13](20250116):Qlib 레퍼런스 알파팩터 공유 레지스트리 연동
+    - papers/Qlib 알파들.py의 Alpha360·Alpha158 스펙을 파싱해 Qlib 제공 알파를 재구성
+    - Ref/Mean/Std/Quantile/IdxMax 등 qlib 연산자를 파이썬에서 재현하는 유틸리티 계층 작성
+    - Qlib 전용 provider 추가(QLIB360/QLIB158 prefix) 후 WorldQuant 101 alongside 자동 등록
+    - Registry bootstrap에 Qlib 등록 플로우 연결해 공유 알파 목록 확장
+    - numpy.polyfit 경고 캡처 등 안전장치 포함, Transpiler와 호환되는 Series 반환 보장
+
     ### GA 실행 워크플로우
     - **GA 실행 버튼**: 조건 검증 후 백엔드 API 호출
     - **상태 폴링 시스템**: 1초마다 GA 진행 상태 확인
