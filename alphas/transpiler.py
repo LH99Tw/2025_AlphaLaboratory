@@ -40,6 +40,37 @@ def _build_allowed_globals() -> Dict[str, Any]:
         ts_sum,
     )
 
+    def ts_mean(df: Any, window: int = 10):
+        """Rolling mean; Series 또는 DataFrame 지원."""
+        window = int(window)
+        return df.rolling(window, min_periods=window).mean()
+
+    def ts_stddev(df: Any, window: int = 10):
+        """Rolling stddev with population ddof=0."""
+        window = int(window)
+        return df.rolling(window, min_periods=window).std(ddof=0)
+
+    def ts_var(df: Any, window: int = 10):
+        """Rolling variance (population)."""
+        window = int(window)
+        return df.rolling(window, min_periods=window).var(ddof=0)
+
+    def ts_zscore(df: Any, window: int = 20):
+        """Rolling z-score: (x - rolling_mean) / rolling_std."""
+        window = int(window)
+        rolling_mean = df.rolling(window, min_periods=window).mean()
+        rolling_std = df.rolling(window, min_periods=window).std(ddof=0)
+        normalized = (df - rolling_mean) / (rolling_std.replace(0, np.nan))
+        return normalized.fillna(0)
+
+    def zscore(df: Any, window: int = 20):
+        """Alias for rolling z-score; defaults to 20."""
+        return ts_zscore(df, window)
+
+    def ts_mean_abs(df: Any, window: int = 10):
+        """Rolling mean of absolute values."""
+        return df.abs().rolling(int(window), min_periods=int(window)).mean()
+
     safe_builtins = {
         "abs": abs,
         "min": min,
@@ -71,6 +102,15 @@ def _build_allowed_globals() -> Dict[str, Any]:
         "ts_min": ts_min,
         "ts_rank": ts_rank,
         "ts_sum": ts_sum,
+        "ts_mean": ts_mean,
+        "ts_stddev": ts_stddev,
+        "ts_std": ts_stddev,
+        "ts_var": ts_var,
+        "ts_variance": ts_var,
+        "ts_zscore": ts_zscore,
+        "zscore": zscore,
+        "ts_avg": ts_mean,
+        "ts_mean_abs": ts_mean_abs,
         # 표현식에서 자주 사용되는 편리한 넘파이 약어들
         "sign": np.sign,
         "log": np.log,
