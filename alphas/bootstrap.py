@@ -4,7 +4,7 @@ from typing import Optional
 
 from .registry import AlphaRegistry
 from .store import AlphaStore
-from .providers import register_worldquant101
+from .providers import register_qlib_alphas, register_worldquant101
 
 
 def build_shared_registry(alpha_store: Optional[AlphaStore] = None) -> AlphaRegistry:
@@ -14,6 +14,7 @@ def build_shared_registry(alpha_store: Optional[AlphaStore] = None) -> AlphaRegi
     """
     registry = AlphaRegistry()
     register_worldquant101(registry)
+    register_qlib_alphas(registry)
 
     if alpha_store:
         registry.extend(alpha_store.load_shared_definitions(), overwrite=True)
